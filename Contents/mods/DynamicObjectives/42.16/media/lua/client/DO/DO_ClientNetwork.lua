@@ -22,6 +22,24 @@ local function onServerCommand(module, command, args)
         if player and DO.Quests and DO.Quests.ApplyEncounterSpawnResult then
             DO.Quests.ApplyEncounterSpawnResult(player, args and args.questID, args and args.spawnedCount)
         end
+    elseif command == "ObjectiveHooksRefreshed" then
+        if DT_RadioScannerWindow and DT_RadioScannerWindow.instance and DT_RadioScannerWindow.instance.currentCategory == "Quest" then
+            DT_RadioScannerWindow.instance.skipQuestServerRefresh = true
+            DT_RadioScannerWindow.instance:refresh()
+        end
+    elseif command == "HookIncidentAccepted" then
+        local player = getLocalPlayer()
+        if player and args and args.questSpec and DO.Quests and DO.Quests.StartQuest then
+            DO.Quests.StartQuest(player, DO.DeepCopy and DO.DeepCopy(args.questSpec) or args.questSpec)
+        end
+
+        if _G.DOTraderHelpEscortJobUI and _G.DOTraderHelpEscortJobUI.OnIncidentAccepted then
+            _G.DOTraderHelpEscortJobUI.OnIncidentAccepted(args)
+        end
+    elseif command == "HookIncidentFailed" then
+        if _G.DOTraderHelpEscortJobUI and _G.DOTraderHelpEscortJobUI.OnIncidentFailed then
+            _G.DOTraderHelpEscortJobUI.OnIncidentFailed(args)
+        end
     end
 end
 

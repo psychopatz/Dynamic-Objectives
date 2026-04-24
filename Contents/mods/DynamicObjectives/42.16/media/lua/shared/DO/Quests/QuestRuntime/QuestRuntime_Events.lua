@@ -100,6 +100,22 @@ function Quests.OnPlayerQuestUpdate(player)
                 return
             end
 
+            local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+            if hook and hook.onQuestUpdate then
+                local hookResult = hook.onQuestUpdate(player, quest, store)
+                if type(hookResult) == "table" then
+                    changed = hookResult.changed == true or changed
+                    if hookResult.complete == true then
+                        Quests.CompleteQuest(player, quest.id, hookResult.reason or "hook_completed")
+                        return
+                    end
+                    if hookResult.fail == true then
+                        Quests.FailQuest(player, quest.id, hookResult.reason or "hook_failed")
+                        return
+                    end
+                end
+            end
+
             for _, objective in ipairs(quest.objectives or {}) do
                 if objective.completed ~= true then
                     if quest.encounter and quest.encounter.spawned ~= true and Runtime.isEncounterActivationReady(player, quest) then

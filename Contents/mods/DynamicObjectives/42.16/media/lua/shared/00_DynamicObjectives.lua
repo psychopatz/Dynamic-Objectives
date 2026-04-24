@@ -10,6 +10,7 @@ DO.MapMarkers = DO.MapMarkers or {}
 DO.WorldMarkers = DO.WorldMarkers or {}
 DO.ClearIndicators = DO.ClearIndicators or {}
 DO.Integration = DO.Integration or {}
+DO.UI = DO.UI or {}
 DO.QuestBlueprints = DO.QuestBlueprints or { Registry = {}, Order = {} }
 DO.QuestLootPools = DO.QuestLootPools or { Registry = {}, Order = {} }
 DO.QuestDialogueTrees = DO.QuestDialogueTrees or { Registry = {}, Order = {} }
@@ -162,12 +163,15 @@ function DO.NotifyStateChanged(player)
 end
 
 require "DO/Integration/DO_V2Integration"
+require "DO/Common/DO_ObjectiveHookRegistry"
 require "DO/Common/DO_QuestRegistry"
 require "DO/Common/DO_QuestBlueprintValidator"
 require "DO/Common/DO_QuestRegistryLoader"
 require "DO/Rewards/DO_Rewards"
 require "DO/Quests/DO_QuestItemRuntime"
 require "DO/Quests/QuestRuntime/QuestRuntime"
+require "DO/Objectives/DO_ObjectiveHooks"
+require "DO/UI/DO_ScannerQuestProvider"
 require "DO/Kills/DO_KillTracking"
 
 if DO.QuestRegistryLoader and DO.QuestRegistryLoader.LoadShippedContent then

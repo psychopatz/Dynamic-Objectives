@@ -10,6 +10,14 @@ function Quests.GetStore(player, create)
     return Runtime.getStore(player, create)
 end
 
+function Quests.BuildObjectiveHookOffer(player, hookID, context)
+    local hook = hookID and DO.GetObjectiveHook and DO.GetObjectiveHook(hookID) or nil
+    if not hook or not hook.buildOffer then
+        return nil
+    end
+    return hook.buildOffer(player, context)
+end
+
 function Quests.GetEligibleTraderOffers(player, traderContext)
     local results = {}
     local store = Runtime.getStore(player, true)

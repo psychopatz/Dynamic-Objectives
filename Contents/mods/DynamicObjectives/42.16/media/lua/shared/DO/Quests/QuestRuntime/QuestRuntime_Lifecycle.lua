@@ -106,6 +106,13 @@ function Quests.AbandonQuest(player, questID)
             quest.tracked = false
             quest.located = false
             quest.abandonedAt = DO.NowMs()
+            if Runtime.finalizeObjectiveHookQuest then
+                Runtime.finalizeObjectiveHookQuest(player, quest, "abandoned", "abandoned")
+            end
+            local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+            if hook and hook.onQuestFail then
+                hook.onQuestFail(player, quest, store, "abandoned")
+            end
             Runtime.removeQuestItemByQuestID(player, quest.id)
             Runtime.removeQuestDropsByQuestID(player, quest.id)
             Runtime.markBlueprintLedger(store, quest, "lastAbandonedAtWorldHours")
@@ -148,6 +155,13 @@ function Quests.CompleteQuest(player, questID, reason)
     quest.completedAt = DO.NowMs()
     quest.completionReason = reason or "completed"
     Runtime.markBlueprintLedger(store, quest, "lastCompletedAtWorldHours")
+    if Runtime.finalizeObjectiveHookQuest then
+        Runtime.finalizeObjectiveHookQuest(player, quest, "completed", reason or "completed")
+    end
+    local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+    if hook and hook.onQuestComplete then
+        hook.onQuestComplete(player, quest, store, reason or "completed")
+    end
 
     if store.trackedQuestID == quest.id then
         store.trackedQuestID = nil
@@ -181,6 +195,13 @@ function Quests.FailQuest(player, questID, reason)
     quest.failedAt = DO.NowMs()
     quest.failureReason = reason or "failed"
     Runtime.markBlueprintLedger(store, quest, "lastFailedAtWorldHours")
+    if Runtime.finalizeObjectiveHookQuest then
+        Runtime.finalizeObjectiveHookQuest(player, quest, "failed", reason or "failed")
+    end
+    local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+    if hook and hook.onQuestFail then
+        hook.onQuestFail(player, quest, store, reason or "failed")
+    end
 
     Runtime.removeQuestItemByQuestID(player, quest.id)
     Runtime.removeQuestDropsByQuestID(player, quest.id)
@@ -213,6 +234,9 @@ function Quests.StartQuest(player, spec)
     local quest = DO.DeepCopy(spec)
     quest.id = quest.id or Runtime.nextQuestID(player, store)
     quest.name = tostring(quest.name or quest.id)
+    quest.hookId = quest.hookId and tostring(quest.hookId) or nil
+    quest.hookIncidentId = quest.hookIncidentId and tostring(quest.hookIncidentId) or nil
+    quest.hookState = type(quest.hookState) == "table" and DO.DeepCopy(quest.hookState) or nil
     quest.status = "active"
     quest.createdAt = DO.NowMs()
     quest.startedAtWorldHours = Runtime.getWorldAgeHours()
@@ -279,6 +303,11 @@ function Quests.StartQuest(player, spec)
 
     if quest.grantItemType and Quests.RequestSpawnQuestItem then
         Quests.RequestSpawnQuestItem(player, quest.grantItemType, tonumber(quest.grantItemDifficulty) or 1.0, quest.id)
+    end
+
+    local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+    if hook and hook.onQuestAccepted then
+        hook.onQuestAccepted(player, quest, store, spec)
     end
 
     Runtime.say(player, "Objective accepted: " .. tostring(quest.name))

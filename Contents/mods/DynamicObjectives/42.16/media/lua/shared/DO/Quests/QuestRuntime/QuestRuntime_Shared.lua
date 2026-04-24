@@ -217,6 +217,45 @@ local function getWorldAgeHours()
     return 0
 end
 
+local function isAuthoritativeContext()
+    return isServer() or not isClient()
+end
+
+local function getObjectiveHookForQuest(quest)
+    local hookID = quest and quest.hookId and tostring(quest.hookId) or nil
+    if not hookID or not DO.GetObjectiveHook then
+        return nil
+    end
+    return DO.GetObjectiveHook(hookID)
+end
+
+local function finalizeObjectiveHookQuest(player, quest, resolution, reason)
+    local hook = getObjectiveHookForQuest(quest)
+    if not hook then
+        return false
+    end
+
+    local payload = {
+        hookId = tostring(quest.hookId),
+        incidentId = quest.hookIncidentId and tostring(quest.hookIncidentId) or nil,
+        questID = quest.id and tostring(quest.id) or nil,
+        resolution = tostring(resolution or "completed"),
+        reason = reason and tostring(reason) or nil,
+        traderId = quest.hookState and quest.hookState.traderId or nil,
+    }
+
+    if isAuthoritativeContext() and hook.finalizeQuest then
+        return hook.finalizeQuest(player, payload) == true
+    end
+
+    if player and sendClientCommand then
+        sendClientCommand(player, "DynamicObjectives", "FinalizeObjectiveHookQuest", payload)
+        return true
+    end
+
+    return false
+end
+
 local function clampDifficulty(value)
     return math.max(0.5, math.min(100.0, normalizeDifficulty(value)))
 end
@@ -332,9 +371,12 @@ Runtime.buildDebugRewardContext = buildDebugRewardContext
 Runtime.normalizeDifficulty = normalizeDifficulty
 Runtime.getConfiguredQuestDifficulty = getConfiguredQuestDifficulty
 Runtime.getWorldAgeHours = getWorldAgeHours
+Runtime.isAuthoritativeContext = isAuthoritativeContext
 Runtime.clampDifficulty = clampDifficulty
 Runtime.getQuestDifficultyLabel = getQuestDifficultyLabel
 Runtime.resolveQuestDifficulty = resolveQuestDifficulty
 Runtime.scaleCountForDifficulty = scaleCountForDifficulty
 Runtime.normalizeText = normalizeText
 Runtime.matchesNormalizedList = matchesNormalizedList
+Runtime.getObjectiveHookForQuest = getObjectiveHookForQuest
+Runtime.finalizeObjectiveHookQuest = finalizeObjectiveHookQuest

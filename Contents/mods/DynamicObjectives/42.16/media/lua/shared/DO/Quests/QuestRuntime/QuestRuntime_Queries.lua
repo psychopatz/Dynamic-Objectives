@@ -100,6 +100,8 @@ local function buildObjectiveLines(quest, zoneState)
             end
         elseif objective.type == "deliverItem" then
             line.value = objective.completed == true and "Delivered" or "Take the package to the marker"
+        elseif objective.type == "escortTarget" then
+            line.value = objective.completed == true and "Escorted home" or "Keep the trader alive and moving"
         else
             line.value = string.format("%d / %d", progress, required)
         end
@@ -183,7 +185,7 @@ local function buildQuestDetailData(player, quest)
     local remainingHours = Runtime.getQuestRemainingHours(quest)
     local location = getQuestMarkerLocation(quest)
 
-    return {
+    local detail = {
         questID = quest.id,
         name = tostring(quest.name or quest.id),
         status = tostring(quest.status or "active"),
@@ -217,14 +219,51 @@ local function buildQuestDetailData(player, quest)
         completionReason = quest.completionReason and tostring(quest.completionReason) or nil,
         failureReason = quest.failureReason and tostring(quest.failureReason) or nil,
     }
+    local hook = Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+    if hook and hook.buildSummary then
+        local hookSummary = hook.buildSummary(player, quest, detail)
+        if type(hookSummary) == "table" then
+            detail.hookSummary = hookSummary
+            if hookSummary.name then
+                detail.name = tostring(hookSummary.name)
+            end
+            if hookSummary.targetLabel then
+                detail.targetLabel = tostring(hookSummary.targetLabel)
+            end
+            if hookSummary.currentObjectiveLabel then
+                detail.currentObjectiveLabel = tostring(hookSummary.currentObjectiveLabel)
+            end
+            if hookSummary.primaryProgress then
+                detail.primaryProgress = hookSummary.primaryProgress
+            end
+            if type(hookSummary.lines) == "table" and #hookSummary.lines > 0 then
+                detail.lines = hookSummary.lines
+                detail.totalSteps = math.max(1, #hookSummary.lines)
+                detail.currentStep = math.min(detail.totalSteps, math.max(1, tonumber(hookSummary.currentStep) or 1))
+            end
+        end
+    end
+    return detail
 end
 
 local function buildSummaryFragments(quest, player, detail)
     local parts = {}
     local chainData = detail and detail.chain or getQuestChainData(quest)
+    local hookSummary = detail and detail.hookSummary or nil
 
     if chainData then
         parts[#parts + 1] = chainData.summary
+    end
+
+    if hookSummary and type(hookSummary.summaryFragments) == "table" then
+        for _, fragment in ipairs(hookSummary.summaryFragments) do
+            if fragment and tostring(fragment) ~= "" then
+                parts[#parts + 1] = tostring(fragment)
+            end
+        end
+        if hookSummary.replaceSummaryFragments == true then
+            return parts
+        end
     end
 
     local currentLabel = detail and detail.currentObjectiveLabel or nil
@@ -272,6 +311,10 @@ local function buildMissionSummary(quest, player)
 
     local badgeText = #badges > 0 and (" [" .. table.concat(badges, ", ") .. "]") or ""
     local summaryText = #parts > 0 and (" - " .. table.concat(parts, " | ")) or ""
+    local display = string.format("%s%s%s", detail.name, badgeText, summaryText)
+    if detail.hookSummary and detail.hookSummary.display then
+        display = tostring(detail.hookSummary.display)
+    end
 
     return {
         questID = quest.id,
@@ -280,7 +323,7 @@ local function buildMissionSummary(quest, player)
         statusLabel = detail.statusLabel,
         tracked = detail.tracked,
         located = detail.located,
-        display = string.format("%s%s%s", detail.name, badgeText, summaryText),
+        display = display,
         targetLabel = detail.targetLabel,
         rewardPreview = detail.rewardPreview,
         timeRemainingHours = detail.timeRemainingHours,
