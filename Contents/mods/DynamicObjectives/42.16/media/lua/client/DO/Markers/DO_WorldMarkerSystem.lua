@@ -38,12 +38,12 @@ end
 
 function WorldMarkers.Refresh(playerObj)
     playerObj = playerObj or DO.GetLocalPlayer()
-    if not playerObj or not DO.Quests or not DO.Quests.GetTrackedMarkerData then
+    if not playerObj or not DO.Quests or not DO.Quests.GetLocatedMarkerData then
         WorldMarkers.Clear()
         return
     end
 
-    local marker = DO.Quests.GetTrackedMarkerData(playerObj)
+    local marker = DO.Quests.GetLocatedMarkerData(playerObj)
     local signature = buildSignature(marker)
     if not WorldMarkers.dirty and signature == WorldMarkers.lastSignature then
         return

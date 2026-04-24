@@ -64,12 +64,12 @@ end
 
 function ClearIndicators.Refresh(playerObj)
     playerObj = playerObj or DO.GetLocalPlayer()
-    if not playerObj or not DO.Quests or not DO.Quests.GetTrackedClearanceTargetData then
+    if not playerObj or not DO.Quests or not DO.Quests.GetLocatedClearanceTargetData then
         ClearIndicators.Clear()
         return
     end
 
-    local data = DO.Quests.GetTrackedClearanceTargetData(playerObj)
+    local data = DO.Quests.GetLocatedClearanceTargetData(playerObj)
     local signature = buildSignature(data)
     if not ClearIndicators.dirty and signature == ClearIndicators.lastSignature then
         return

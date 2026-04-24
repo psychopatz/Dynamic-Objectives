@@ -167,7 +167,7 @@ require "DO/Common/DO_QuestBlueprintValidator"
 require "DO/Common/DO_QuestRegistryLoader"
 require "DO/Rewards/DO_Rewards"
 require "DO/Quests/DO_QuestItemRuntime"
-require "DO/Quests/DO_QuestRuntime"
+require "DO/Quests/QuestRuntime/QuestRuntime"
 require "DO/Kills/DO_KillTracking"
 
 if DO.QuestRegistryLoader and DO.QuestRegistryLoader.LoadShippedContent then

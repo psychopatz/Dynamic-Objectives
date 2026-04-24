@@ -114,7 +114,7 @@ end
 
 function MapMarkers.Refresh(playerObj)
     playerObj = playerObj or DO.GetLocalPlayer()
-    if not playerObj or not DO.Quests or not DO.Quests.GetTrackedMarkerData then
+    if not playerObj or not DO.Quests or not DO.Quests.GetLocatedMarkerData then
         return
     end
 
@@ -123,7 +123,7 @@ function MapMarkers.Refresh(playerObj)
         return
     end
 
-    local marker = DO.Quests.GetTrackedMarkerData(playerObj)
+    local marker = DO.Quests.GetLocatedMarkerData(playerObj)
     local signature = buildMarkerSignature(marker)
     if not MapMarkers.dirty and signature == MapMarkers.lastSignature then
         return

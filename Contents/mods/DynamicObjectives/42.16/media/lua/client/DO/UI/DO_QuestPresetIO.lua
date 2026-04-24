@@ -59,6 +59,12 @@ local function registerPackage(package)
         end
     end
 
+    if type(package.chains) == "table" then
+        for chainID, chain in pairs(package.chains) do
+            DO.RegisterQuestChain(chainID, chain)
+        end
+    end
+
     if type(package.blueprint) == "table" then
         DO.RegisterQuestBlueprint(package.blueprint.id, package.blueprint)
     end
@@ -85,6 +91,7 @@ function DO_QuestPresetIO.buildPackageFromBlueprint(blueprintID)
         blueprint = DO.DeepCopy(blueprint),
         lootPools = {},
         dialogueTrees = {},
+        chains = {},
     }
 
     local function addPool(poolID)
@@ -107,6 +114,17 @@ function DO_QuestPresetIO.buildPackageFromBlueprint(blueprintID)
         local tree = DO.GetQuestDialogueTree(blueprint.dialogueTree)
         if tree then
             package.dialogueTrees[blueprint.dialogueTree] = DO.DeepCopy(tree)
+        end
+    end
+
+    if DO.GetQuestChainList then
+        for _, chain in ipairs(DO.GetQuestChainList()) do
+            for _, stage in ipairs(chain.stages or {}) do
+                if tostring(stage.blueprintId or "") == tostring(blueprintID) then
+                    package.chains[chain.id] = DO.DeepCopy(chain)
+                    break
+                end
+            end
         end
     end
 

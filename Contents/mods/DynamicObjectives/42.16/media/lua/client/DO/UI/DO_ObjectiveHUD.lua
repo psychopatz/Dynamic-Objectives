@@ -1,4 +1,5 @@
 require "ISUI/ISPanel"
+require "DO/UI/DO_MissionViewerWindow"
 
 DynamicObjectives = DynamicObjectives or {}
 DynamicObjectives.UI = DynamicObjectives.UI or {}
@@ -28,19 +29,19 @@ local function clamp(value, minValue, maxValue)
     return value
 end
 
-local function drawProgressBar(panel, x, y, width, ratio, color)
-    ratio = math.max(0, math.min(1, tonumber(ratio) or 0))
-    panel:drawRect(x, y, width, 6, 0.25, 0, 0, 0)
-    panel:drawRectBorder(x, y, width, 6, 0.35, 1, 1, 1)
-    panel:drawRect(x + 1, y + 1, math.max(0, (width - 2) * ratio), 4, 0.8, color.r, color.g, color.b)
-end
-
 local function measureText(font, text)
     local manager = getTextManager and getTextManager() or nil
     if not manager then
         return 0
     end
     return manager:MeasureStringX(font, tostring(text or ""))
+end
+
+local function drawProgressBar(panel, x, y, width, ratio, color)
+    ratio = math.max(0, math.min(1, tonumber(ratio) or 0))
+    panel:drawRect(x, y, width, 6, 0.25, 0, 0, 0)
+    panel:drawRectBorder(x, y, width, 6, 0.35, 1, 1, 1)
+    panel:drawRect(x + 1, y + 1, math.max(0, (width - 2) * ratio), 4, 0.8, color.r, color.g, color.b)
 end
 
 local function drawStrike(panel, x, y, width, color)
@@ -65,6 +66,14 @@ local function formatRemainingHours(hours)
     return string.format("%dh %dm remaining", wholeHours, minutes)
 end
 
+local function pointInRect(x, y, rect)
+    return rect
+        and x >= rect.x
+        and y >= rect.y
+        and x <= (rect.x + rect.w)
+        and y <= (rect.y + rect.h)
+end
+
 function DO_ObjectiveHUD:initialise()
     ISPanel.initialise(self)
 end
@@ -77,6 +86,91 @@ function DO_ObjectiveHUD:isExpanded()
     return self.data ~= nil and (self.pinnedOpen == true or self.mouseOver == true)
 end
 
+function DO_ObjectiveHUD:measureExpandedSize()
+    local core = getCore and getCore() or nil
+    if not core then
+        return 360, 240
+    end
+
+    local screenW = core:getScreenWidth()
+    local scale = clamp(screenW / 1920, 0.85, 1.2)
+    local xPad = 14
+    local bodyWidth = 300
+    local data = self.data or {}
+    local locateLabel = data.located == true and "UNLOCATE" or "LOCATE"
+    local buttonWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
+    local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
+    local baseHeaderWidth = 56 + buttonWidth + missionsWidth + 12
+
+    bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.name or "Objective") + baseHeaderWidth)
+    bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.chainSummary or "")) + 40)
+    bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.targetLabel or "")) + 40)
+    bodyWidth = math.max(
+        bodyWidth,
+        measureText(
+            UIFont.Small,
+            string.format("Threat: %s  x%.2f", tostring(data.difficultyLabel or "Unknown"), tonumber(data.difficulty) or 1.0)
+        ) + 40
+    )
+
+    if tonumber(data.timeLimitHours) and tonumber(data.timeLimitHours) > 0 then
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Expires: " .. tostring(formatRemainingHours(data.timeRemainingHours) or "Expired")) + 40)
+    end
+    if data.rewardPreview and data.rewardPreview ~= "" then
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Rewards: " .. tostring(data.rewardPreview)) + 40)
+    end
+    if data.currentObjectiveLabel and data.currentObjectiveLabel ~= "" then
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Current: " .. tostring(data.currentObjectiveLabel)) + 40)
+    end
+    if data.primaryProgress then
+        bodyWidth = math.max(
+            bodyWidth,
+            measureText(UIFont.Small, tostring(data.primaryProgress.label or "Progress"))
+                + measureText(UIFont.Medium, tostring(data.primaryProgress.value or ""))
+                + 80
+        )
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.primaryProgress.detail or "")) + 60)
+    end
+
+    for _, line in ipairs(data.lines or {}) do
+        local rowWidth = 44
+            + measureText(UIFont.Small, tostring(line.label or "Step"))
+            + measureText(UIFont.Small, tostring(line.value or ""))
+            + 40
+        bodyWidth = math.max(bodyWidth, rowWidth)
+    end
+
+    local width = clamp(bodyWidth + (xPad * 2), 320, math.min(520, screenW - 40))
+    local height = 52
+    height = height + 24
+    if data.chainSummary and data.chainSummary ~= "" then
+        height = height + 18
+    end
+    if data.targetLabel and data.targetLabel ~= "" then
+        height = height + 18
+    end
+    if data.difficultyLabel and data.difficultyLabel ~= "" then
+        height = height + 18
+    end
+    if tonumber(data.timeLimitHours) and tonumber(data.timeLimitHours) > 0 then
+        height = height + 18
+    end
+    if data.rewardPreview and data.rewardPreview ~= "" then
+        height = height + 18
+    end
+    if data.currentObjectiveLabel and data.currentObjectiveLabel ~= "" then
+        height = height + 20
+    end
+    if data.primaryProgress then
+        height = height + 62
+    end
+    height = height + 18
+    height = height + (#(data.lines or {}) * 28)
+    height = clamp(height + 16, 220, 700)
+
+    return width, height
+end
+
 function DO_ObjectiveHUD:syncLayout()
     local core = getCore and getCore() or nil
     if not core then
@@ -86,23 +180,8 @@ function DO_ObjectiveHUD:syncLayout()
     local screenW = core:getScreenWidth()
     local screenH = core:getScreenHeight()
     local scale = clamp(screenW / 1920, 0.85, 1.2)
-    local lineCount = self.data and #(self.data.lines or {}) or 0
-    local extraRows = 0
-    if self.data and self.data.difficultyLabel and self.data.difficultyLabel ~= "" then
-        extraRows = extraRows + 1
-    end
-    if self.data and tonumber(self.data.timeLimitHours) and tonumber(self.data.timeLimitHours) > 0 then
-        extraRows = extraRows + 1
-    end
-    if self.data and self.data.rewardPreview and self.data.rewardPreview ~= "" then
-        extraRows = extraRows + 1
-    end
     local collapsedSize = clamp(math.floor(42 * scale), 38, 52)
-    local expandedWidth = clamp(math.floor(screenW * 0.23), 300, 430)
-    local expandedHeight = math.max(
-        math.floor(220 * scale),
-        math.floor((176 + (lineCount * 28) + (extraRows * 18)) * scale)
-    )
+    local expandedWidth, expandedHeight = self:measureExpandedSize()
     local expanded = self:isExpanded()
 
     self.collapsedSize = collapsedSize
@@ -119,6 +198,7 @@ function DO_ObjectiveHUD:syncFromQuest()
     local player = getLocalPlayer()
     local data = player and DO.Quests and DO.Quests.GetTrackedObjectiveUIData and DO.Quests.GetTrackedObjectiveUIData(player) or nil
     self.data = data
+    self.hitAreas = {}
     self:setVisible(data ~= nil)
     self:syncLayout()
 end
@@ -150,9 +230,34 @@ function DO_ObjectiveHUD:onMouseMoveOutside(dx, dy)
     return ISPanel.onMouseMoveOutside(self, dx, dy)
 end
 
+function DO_ObjectiveHUD:onLocateQuest()
+    local player = getLocalPlayer()
+    if player and self.data and self.data.questID and DO.Quests and DO.Quests.ToggleLocatedQuest then
+        DO.Quests.ToggleLocatedQuest(player, self.data.questID)
+        self:syncFromQuest()
+    end
+end
+
+function DO_ObjectiveHUD:onOpenMissionViewer()
+    if DO_MissionViewerWindow and DO_MissionViewerWindow.OnOpen then
+        DO_MissionViewerWindow.OnOpen()
+    end
+end
+
 function DO_ObjectiveHUD:onMouseUp(x, y)
     if not self.data then
         return false
+    end
+
+    if self:isExpanded() then
+        if pointInRect(x, y, self.hitAreas.locate) then
+            self:onLocateQuest()
+            return true
+        end
+        if pointInRect(x, y, self.hitAreas.missions) then
+            self:onOpenMissionViewer()
+            return true
+        end
     end
 
     self.pinnedOpen = not self.pinnedOpen
@@ -176,6 +281,14 @@ function DO_ObjectiveHUD:prerender()
     self:drawRect(0, 0, self.width, 34, 0.92, 0.11, 0.12, 0.14)
 end
 
+function DO_ObjectiveHUD:drawHeaderButton(x, y, width, height, label, active)
+    local fill = active and { r = 0.22, g = 0.36, b = 0.22 } or { r = 0.16, g = 0.16, b = 0.18 }
+    local border = active and { r = 0.66, g = 0.92, b = 0.66 } or { r = 0.84, g = 0.84, b = 0.84 }
+    self:drawRect(x, y, width, height, 0.92, fill.r, fill.g, fill.b)
+    self:drawRectBorder(x, y, width, height, 0.6, border.r, border.g, border.b)
+    self:drawTextCentre(label, x + (width / 2), y + 4, 0.96, 0.96, 0.96, 0.98, UIFont.Small)
+end
+
 function DO_ObjectiveHUD:renderCollapsed()
     local icon = self.iconTexture
     local pad = 6
@@ -186,7 +299,8 @@ function DO_ObjectiveHUD:renderCollapsed()
         self:drawTextCentre("OBJ", self.width / 2, 11, 0.95, 0.82, 0.52, 1, UIFont.Small)
     end
 
-    self:drawRect(self.width - 12, 4, 8, 8, 0.95, 0.95, 0.42, 0.18)
+    local dot = self.data and self.data.located == true and { r = 0.36, g = 0.84, b = 0.48 } or { r = 0.95, g = 0.95, b = 0.42 }
+    self:drawRect(self.width - 12, 4, 8, 8, 0.95, dot.r, dot.g, dot.b)
 end
 
 function DO_ObjectiveHUD:renderExpanded()
@@ -194,22 +308,26 @@ function DO_ObjectiveHUD:renderExpanded()
     local y = 8
     local titleRight = self.width - 14
     local icon = self.iconTexture
+    local locateLabel = self.data.located == true and "UNLOCATE" or "LOCATE"
+    local locateWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
+    local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
+    local buttonY = 5
+    local buttonH = 22
+    local locateX = titleRight - locateWidth
+    local missionsX = locateX - 6 - missionsWidth
+
+    self.hitAreas = {
+        missions = { x = missionsX, y = buttonY, w = missionsWidth, h = buttonH },
+        locate = { x = locateX, y = buttonY, w = locateWidth, h = buttonH },
+    }
 
     if icon then
         self:drawTextureScaled(icon, x, 5, 22, 22, 1, 1, 1, 1)
     end
 
     self:drawText("OBJECTIVE TRACKER", x + 28, y, 0.95, 0.82, 0.52, 0.98, UIFont.Small)
-    self:drawTextRight(
-        self.pinnedOpen == true and "CLICK TO UNPIN" or "HOVER OR CLICK TO PIN",
-        titleRight,
-        y,
-        0.78,
-        0.8,
-        0.82,
-        0.96,
-        UIFont.Small
-    )
+    self:drawHeaderButton(missionsX, buttonY, missionsWidth, buttonH, "MISSIONS", false)
+    self:drawHeaderButton(locateX, buttonY, locateWidth, buttonH, locateLabel, self.data.located == true)
 
     y = 40
     self:drawTextRight(
@@ -224,6 +342,11 @@ function DO_ObjectiveHUD:renderExpanded()
     )
     self:drawText(self.data.name or "Objective", x, y, 1, 1, 1, 0.98, UIFont.Medium)
     y = y + 22
+
+    if self.data.chainSummary and self.data.chainSummary ~= "" then
+        self:drawText(self.data.chainSummary, x, y, 0.66, 0.84, 1.0, 0.94, UIFont.Small)
+        y = y + 18
+    end
 
     if self.data.targetLabel and self.data.targetLabel ~= "" then
         self:drawText(self.data.targetLabel, x, y, 0.84, 0.86, 0.9, 0.9, UIFont.Small)
@@ -250,44 +373,17 @@ function DO_ObjectiveHUD:renderExpanded()
         if tonumber(self.data.timeRemainingHours) and tonumber(self.data.timeRemainingHours) <= 1 then
             timeColor = { r = 0.98, g = 0.56, b = 0.42 }
         end
-        self:drawText(
-            "Expires: " .. remainingText,
-            x,
-            y,
-            timeColor.r,
-            timeColor.g,
-            timeColor.b,
-            0.94,
-            UIFont.Small
-        )
+        self:drawText("Expires: " .. remainingText, x, y, timeColor.r, timeColor.g, timeColor.b, 0.94, UIFont.Small)
         y = y + 18
     end
 
     if self.data.rewardPreview and self.data.rewardPreview ~= "" then
-        self:drawText(
-            "Rewards: " .. tostring(self.data.rewardPreview),
-            x,
-            y,
-            0.72,
-            0.9,
-            0.72,
-            0.94,
-            UIFont.Small
-        )
+        self:drawText("Rewards: " .. tostring(self.data.rewardPreview), x, y, 0.72, 0.9, 0.72, 0.94, UIFont.Small)
         y = y + 18
     end
 
     if self.data.currentObjectiveLabel and self.data.currentObjectiveLabel ~= "" then
-        self:drawText(
-            "Current: " .. tostring(self.data.currentObjectiveLabel),
-            x,
-            y,
-            0.97,
-            0.72,
-            0.42,
-            0.96,
-            UIFont.Small
-        )
+        self:drawText("Current: " .. tostring(self.data.currentObjectiveLabel), x, y, 0.97, 0.72, 0.42, 0.96, UIFont.Small)
         y = y + 20
     end
 
@@ -378,6 +474,7 @@ function DO_ObjectiveHUD:new(x, y, width, height)
     o.mouseOver = false
     o.pinnedOpen = false
     o.iconTexture = getTexture("media/ui/Icon_MarketInfo.png")
+    o.hitAreas = {}
     o:setVisible(false)
     return o
 end
