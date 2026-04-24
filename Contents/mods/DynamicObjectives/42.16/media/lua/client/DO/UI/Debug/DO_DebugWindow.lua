@@ -8,6 +8,7 @@ require "DO/UI/DO_MissionViewerWindow"
 
 DO_DebugWindow = ISCollapsableWindow:derive("DO_DebugWindow")
 DO_DebugWindow.instance = nil
+local TRADER_HELP_HOOK_ID = "TraderNeeds.HelpEscort"
 
 local function getLocalPlayer()
     if getSpecificPlayer then
@@ -109,6 +110,11 @@ function DO_DebugWindow:createChildren()
     self.btnRestingChain.backgroundColor = { r = 0.12, g = 0.3, b = 0.18, a = 1.0 }
     self:addChild(self.btnRestingChain)
 
+    self.btnForceTraderHelp = ISButton:new(0, 0, 80, self.buttonH, "Force Trader Help Escort", self, self.onForceTraderHelpEscort)
+    self.btnForceTraderHelp:initialise()
+    self.btnForceTraderHelp.backgroundColor = { r = 0.28, g = 0.24, b = 0.12, a = 1.0 }
+    self:addChild(self.btnForceTraderHelp)
+
     self.btnMissionViewer = ISButton:new(0, 0, 80, self.buttonH, "Open Mission Viewer", self, self.onOpenMissionViewer)
     self.btnMissionViewer:initialise()
     self:addChild(self.btnMissionViewer)
@@ -172,6 +178,7 @@ function DO_DebugWindow:getContentWidth()
     local controlMin = 460
     local buttonTextWidth = math.max(
         measureText(UIFont.Small, "Start Resting Chain"),
+        measureText(UIFont.Small, "Force Trader Help Escort"),
         measureText(UIFont.Small, "Open Mission Viewer"),
         measureText(UIFont.Small, "Preview Quest Conversation"),
         measureText(UIFont.Small, "Locate Selected")
@@ -196,7 +203,7 @@ function DO_DebugWindow:syncWindowSize()
     local contentWidth = clamp(self:getContentWidth(), 460, math.max(520, screenW - 80))
     local listItems = self.activeList and #(self.activeList.items or {}) or 0
     local listHeight = clamp(math.max(104, listItems * 28), 120, math.floor(screenH * 0.42))
-    local contentHeight = 310 + listHeight
+    local contentHeight = 340 + listHeight
     local windowHeight = clamp(contentHeight + self:titleBarHeight() + 20, 420, screenH - 100)
 
     self:setWidth(contentWidth)
@@ -254,6 +261,11 @@ function DO_DebugWindow:layoutChildren()
     self.btnRestingChain:setX(x)
     self.btnRestingChain:setY(y)
     self.btnRestingChain:setWidth(fullW)
+    y = y + buttonH + gap
+
+    self.btnForceTraderHelp:setX(x)
+    self.btnForceTraderHelp:setY(y)
+    self.btnForceTraderHelp:setWidth(fullW)
     y = y + buttonH + gap
 
     self.btnMissionViewer:setX(x)
@@ -381,6 +393,42 @@ function DO_DebugWindow:onStartRestingChainQuest()
         DynamicObjectives.Quests.DebugStartRestingChainQuest(player, self.debugDifficulty, self.debugTimeLimitHours)
         self:refreshQuestList()
     end
+end
+
+function DO_DebugWindow:onForceTraderHelpEscort()
+    local player = getLocalPlayer()
+    if not player then
+        return
+    end
+
+    if isClient() and not isServer() then
+        if sendClientCommand then
+            sendClientCommand(player, "DynamicObjectives", "ForceObjectiveHookIncident", {
+                hookId = TRADER_HELP_HOOK_ID,
+            })
+        end
+        if player.Say then
+            player:Say("Forcing trader help escort incident...")
+        end
+    else
+        local hook = DynamicObjectives.GetObjectiveHook and DynamicObjectives.GetObjectiveHook(TRADER_HELP_HOOK_ID) or nil
+        local result = hook and hook.forceIncidentForPlayer and hook.forceIncidentForPlayer(player, {
+            hookId = TRADER_HELP_HOOK_ID,
+        }) or nil
+
+        if DynamicObjectives.UI and DynamicObjectives.UI.RequestScannerQuestRefresh then
+            DynamicObjectives.UI.RequestScannerQuestRefresh(player)
+        end
+
+        if player.Say then
+            if result and result.ok == true then
+                player:Say("Trader help escort forced.")
+            else
+                player:Say("No eligible trader help escort found.")
+            end
+        end
+    end
+    self:refreshQuestList()
 end
 
 function DO_DebugWindow:onOpenMissionViewer()

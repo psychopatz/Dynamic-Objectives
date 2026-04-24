@@ -1,5 +1,7 @@
 {
     "Sandbox_DynamicObjectives": "Dynamic Objectives",
     "Sandbox_DynamicObjectives.QuestDifficulty": "Quest Difficulty",
-    "Sandbox_DynamicObjectives.QuestDifficulty_tooltip": "Global multiplier for encounter-based objective spawns. Higher values spawn more quest zombies and raise the required kill count."
+    "Sandbox_DynamicObjectives.QuestDifficulty_tooltip": "Global multiplier for encounter-based objective spawns. Higher values spawn more quest zombies and raise the required kill count.",
+    "Sandbox_DynamicObjectives.QuestExpirationMultiplier": "Quest Expiration Multiplier",
+    "Sandbox_DynamicObjectives.QuestExpirationMultiplier_tooltip": "Scales the base expiration for generated Dynamic Objectives quests. Set to 0 to disable quest expiration."
 }

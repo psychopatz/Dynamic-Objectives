@@ -272,6 +272,19 @@ function Validator.ValidateBlueprint(id, blueprint)
         addIssue(errors, "HuntDrop blueprint " .. tostring(id) .. " is missing dropItemPool.")
     end
 
+    local generation = type(blueprint.generation) == "table" and blueprint.generation or nil
+    if generation then
+        if generation.enabled ~= nil and generation.enabled ~= true and generation.enabled ~= false then
+            addIssue(errors, "Blueprint " .. tostring(id) .. " generation.enabled must be a boolean.")
+        end
+        if generation.rewardProfile ~= nil and tostring(generation.rewardProfile) == "" then
+            addIssue(errors, "Blueprint " .. tostring(id) .. " generation.rewardProfile is invalid.")
+        end
+        if generation.offerTtlHours ~= nil and tonumber(generation.offerTtlHours) == nil then
+            addIssue(errors, "Blueprint " .. tostring(id) .. " generation.offerTtlHours is invalid.")
+        end
+    end
+
     return #errors == 0, errors, warnings
 end
 

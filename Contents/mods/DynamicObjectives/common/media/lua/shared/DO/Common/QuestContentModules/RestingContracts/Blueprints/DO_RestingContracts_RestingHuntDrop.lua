@@ -35,6 +35,13 @@ DO.RegisterQuestBlueprint("resting_hunt_drop", {
         requireAreaClear = true,
         requirePlayerPresence = true,
     },
+    generation = {
+        enabled = true,
+        rewardProfile = "huntdrop_default",
+        offerTtlHours = 6,
+        allowProceduralCash = true,
+        allowProceduralReputation = true,
+    },
     dropItemPool = "default_hunt_drop_items",
     rewardPools = { "default_hunt_rewards" },
     dialogueTree = "default_hunt_dialogue",

@@ -25,6 +25,13 @@ DO.RegisterQuestBlueprint("resting_courier_run", {
         g = 0.85,
         b = 1.0,
     },
+    generation = {
+        enabled = true,
+        rewardProfile = "courier_default",
+        offerTtlHours = 6,
+        allowProceduralCash = true,
+        allowProceduralReputation = true,
+    },
     grantItemPool = "default_courier_items",
     rewardPools = { "default_courier_rewards" },
     dialogueTree = "default_courier_dialogue",

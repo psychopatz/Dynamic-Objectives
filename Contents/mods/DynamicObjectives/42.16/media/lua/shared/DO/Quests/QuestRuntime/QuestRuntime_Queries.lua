@@ -188,6 +188,7 @@ local function buildQuestDetailData(player, quest)
     local detail = {
         questID = quest.id,
         name = tostring(quest.name or quest.id),
+        title = quest.title and tostring(quest.title) or nil,
         status = tostring(quest.status or "active"),
         statusLabel = getQuestStatusLabel(quest),
         tracked = quest.tracked == true,
@@ -196,6 +197,13 @@ local function buildQuestDetailData(player, quest)
         targetLocation = location,
         difficulty = Runtime.normalizeDifficulty(quest.difficulty),
         rewardPreview = quest.rewardPreview and tostring(quest.rewardPreview) or nil,
+        giverName = quest.giverName and tostring(quest.giverName) or nil,
+        giverTitle = quest.giverTitle and tostring(quest.giverTitle) or nil,
+        giverFactionID = quest.giverFactionID and tostring(quest.giverFactionID) or nil,
+        giverFactionName = quest.giverFactionName and tostring(quest.giverFactionName) or nil,
+        themeID = quest.themeID and tostring(quest.themeID) or nil,
+        budgetValue = tonumber(quest.budgetValue) or nil,
+        rewardTags = DO.DeepCopy(type(quest.rewardTags) == "table" and quest.rewardTags or {}),
         timeLimitHours = tonumber(quest.timeLimitHours) or 0,
         timeRemainingHours = remainingHours,
         expiresSoon = remainingHours ~= nil and remainingHours <= 1,
@@ -255,6 +263,16 @@ local function buildSummaryFragments(quest, player, detail)
         parts[#parts + 1] = chainData.summary
     end
 
+    if detail and detail.giverName then
+        local issuer = detail.giverTitle and detail.giverTitle ~= ""
+            and (tostring(detail.giverName) .. " (" .. tostring(detail.giverTitle) .. ")")
+            or tostring(detail.giverName)
+        if detail.giverFactionName and detail.giverFactionName ~= "" then
+            issuer = issuer .. " - " .. tostring(detail.giverFactionName)
+        end
+        parts[#parts + 1] = "Issued by " .. issuer
+    end
+
     if hookSummary and type(hookSummary.summaryFragments) == "table" then
         for _, fragment in ipairs(hookSummary.summaryFragments) do
             if fragment and tostring(fragment) ~= "" then
@@ -311,7 +329,8 @@ local function buildMissionSummary(quest, player)
 
     local badgeText = #badges > 0 and (" [" .. table.concat(badges, ", ") .. "]") or ""
     local summaryText = #parts > 0 and (" - " .. table.concat(parts, " | ")) or ""
-    local display = string.format("%s%s%s", detail.name, badgeText, summaryText)
+    local displayName = tostring(detail.title or detail.name)
+    local display = string.format("%s%s%s", displayName, badgeText, summaryText)
     if detail.hookSummary and detail.hookSummary.display then
         display = tostring(detail.hookSummary.display)
     end
@@ -319,6 +338,7 @@ local function buildMissionSummary(quest, player)
     return {
         questID = quest.id,
         name = detail.name,
+        title = detail.title,
         status = detail.status,
         statusLabel = detail.statusLabel,
         tracked = detail.tracked,
@@ -326,6 +346,13 @@ local function buildMissionSummary(quest, player)
         display = display,
         targetLabel = detail.targetLabel,
         rewardPreview = detail.rewardPreview,
+        giverName = detail.giverName,
+        giverTitle = detail.giverTitle,
+        giverFactionID = detail.giverFactionID,
+        giverFactionName = detail.giverFactionName,
+        themeID = detail.themeID,
+        budgetValue = detail.budgetValue,
+        rewardTags = DO.DeepCopy(detail.rewardTags or {}),
         timeRemainingHours = detail.timeRemainingHours,
         timeLimitHours = detail.timeLimitHours,
         difficulty = detail.difficulty,
@@ -434,7 +461,7 @@ function Quests.GetQuestMarkerData(player, quest)
 
     return {
         questID = quest.id,
-        name = quest.name,
+        name = quest.title or quest.name,
         description = description,
         x = location.x,
         y = location.y,

@@ -76,8 +76,15 @@ function DO_MissionViewerDetailPanel:applyDetail(detail)
         return
     end
 
-    self.nameLabel:setName(tostring(detail.name or detail.questID or "Mission"))
-    self.metaLabel:setName(string.format("%s  |  Step %d / %d", tostring(detail.statusLabel or "Active"), tonumber(detail.currentStep) or 1, tonumber(detail.totalSteps) or 1))
+    self.nameLabel:setName(tostring(detail.title or detail.name or detail.questID or "Mission"))
+    local metaParts = {
+        tostring(detail.statusLabel or "Active"),
+        string.format("Step %d / %d", tonumber(detail.currentStep) or 1, tonumber(detail.totalSteps) or 1),
+    }
+    if detail.giverName and detail.giverName ~= "" then
+        metaParts[#metaParts + 1] = tostring(detail.giverName)
+    end
+    self.metaLabel:setName(table.concat(metaParts, "  |  "))
     self.body.text = DO_MissionViewerShared.buildDetailText(detail)
     self.body:paginate()
 

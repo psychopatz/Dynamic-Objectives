@@ -63,7 +63,7 @@ function DO_MissionViewerListPanel:drawMissionItem(list, y, item, alt)
         list:drawRectBorder(0, y, width, item.height - 2, 0.35, 0.42, 0.42, 0.42)
     end
 
-    list:drawText(tostring(summary.name or item.text or "Mission"), 12, y + 6, 0.98, 0.98, 0.98, 0.98, UIFont.Small)
+    list:drawText(tostring(summary.title or summary.name or item.text or "Mission"), 12, y + 6, 0.98, 0.98, 0.98, 0.98, UIFont.Small)
     if #badges > 0 then
         list:drawTextRight(table.concat(badges, " | "), width - 10, y + 6, statusColor.r, statusColor.g, statusColor.b, 0.98, UIFont.Small)
     end
@@ -98,7 +98,7 @@ function DO_MissionViewerListPanel:refreshMissions(preferredQuestID)
 
     self.list:clear()
     for _, summary in ipairs(entries) do
-        self.list:addItem(summary.name or summary.questID, summary)
+        self.list:addItem(summary.title or summary.name or summary.questID, summary)
     end
 
     self:selectQuest(targetQuestID)

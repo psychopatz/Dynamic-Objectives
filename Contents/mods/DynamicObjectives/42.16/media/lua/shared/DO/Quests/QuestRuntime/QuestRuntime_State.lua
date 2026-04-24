@@ -207,11 +207,28 @@ local function resolveLocatedQuest(player, store)
     end
 
     store.locatedQuestID = nil
-    for _, quest in ipairs(store.quests or {}) do
-        quest.located = false
+
+    if store.locatorSuppressed ~= true then
+        local tracked = findQuest(store, store.trackedQuestID)
+        if tracked and tracked.status == "active" then
+            store.locatedQuestID = tracked.id
+            located = tracked
+        else
+            for _, quest in ipairs(store.quests or {}) do
+                if quest.status == "active" then
+                    store.locatedQuestID = quest.id
+                    located = quest
+                    break
+                end
+            end
+        end
     end
 
-    return nil
+    for _, quest in ipairs(store.quests or {}) do
+        quest.located = located and quest.id == located.id or false
+    end
+
+    return located
 end
 
 local function onQuestStateChanged(player)

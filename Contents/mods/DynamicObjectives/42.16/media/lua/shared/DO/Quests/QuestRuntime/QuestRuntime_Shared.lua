@@ -7,7 +7,7 @@ Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
 Quests.MODDATA_KEY = Quests.MODDATA_KEY or "DynamicObjectives"
-Quests.STATE_VERSION = Quests.STATE_VERSION or 4
+Quests.STATE_VERSION = Quests.STATE_VERSION or 5
 
 Runtime.questUpdateTick = Runtime.questUpdateTick or 0
 
@@ -91,7 +91,10 @@ local function getStore(player, create)
             quests = {},
             trackedQuestID = nil,
             locatedQuestID = nil,
+            locatorSuppressed = false,
             offerLedger = {},
+            proceduralOfferCache = {},
+            proceduralOfferHistory = {},
             chainProgress = {},
         }
         modData[Quests.MODDATA_KEY] = store
@@ -103,7 +106,10 @@ local function getStore(player, create)
         store.quests = type(store.quests) == "table" and store.quests or {}
         store.trackedQuestID = store.trackedQuestID and tostring(store.trackedQuestID) or nil
         store.locatedQuestID = store.locatedQuestID and tostring(store.locatedQuestID) or nil
+        store.locatorSuppressed = store.locatorSuppressed == true
         store.offerLedger = type(store.offerLedger) == "table" and store.offerLedger or {}
+        store.proceduralOfferCache = type(store.proceduralOfferCache) == "table" and store.proceduralOfferCache or {}
+        store.proceduralOfferHistory = type(store.proceduralOfferHistory) == "table" and store.proceduralOfferHistory or {}
         store.chainProgress = type(store.chainProgress) == "table" and store.chainProgress or {}
     end
 
@@ -207,6 +213,38 @@ end
 local function getConfiguredQuestDifficulty()
     local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
     return normalizeDifficulty(sandbox and sandbox.QuestDifficulty or 1.0)
+end
+
+local function normalizeExpirationMultiplier(value)
+    local multiplier = tonumber(value)
+    if multiplier == nil then
+        return 1.0
+    end
+    if multiplier < 0 then
+        return 0
+    end
+    return multiplier
+end
+
+local function getConfiguredQuestExpirationMultiplier()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return normalizeExpirationMultiplier(sandbox and sandbox.QuestExpirationMultiplier or 1.0)
+end
+
+local function scaleQuestTimeLimit(baseHours, alreadyScaled)
+    local hours = math.max(0, tonumber(baseHours) or 0)
+    if alreadyScaled == true then
+        return hours
+    end
+    if hours <= 0 then
+        return 0
+    end
+
+    local scaled = hours * getConfiguredQuestExpirationMultiplier()
+    if scaled <= 0 then
+        return 0
+    end
+    return scaled
 end
 
 local function getWorldAgeHours()
@@ -370,6 +408,9 @@ Runtime.buildFallbackDestination = buildFallbackDestination
 Runtime.buildDebugRewardContext = buildDebugRewardContext
 Runtime.normalizeDifficulty = normalizeDifficulty
 Runtime.getConfiguredQuestDifficulty = getConfiguredQuestDifficulty
+Runtime.normalizeExpirationMultiplier = normalizeExpirationMultiplier
+Runtime.getConfiguredQuestExpirationMultiplier = getConfiguredQuestExpirationMultiplier
+Runtime.scaleQuestTimeLimit = scaleQuestTimeLimit
 Runtime.getWorldAgeHours = getWorldAgeHours
 Runtime.isAuthoritativeContext = isAuthoritativeContext
 Runtime.clampDifficulty = clampDifficulty

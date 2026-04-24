@@ -74,6 +74,28 @@ local function onClientCommand(module, command, player, args)
                 message = "This incident could not be accepted.",
             })
         end
+    elseif command == "ForceObjectiveHookIncident" then
+        if not player or type(args) ~= "table" then
+            return
+        end
+
+        local hook = DynamicObjectives.GetObjectiveHook and DynamicObjectives.GetObjectiveHook(args.hookId) or nil
+        if not hook or not hook.forceIncidentForPlayer then
+            return
+        end
+
+        hook.forceIncidentForPlayer(player, args)
+        if DynamicObjectives.NotifyStateChanged then
+            DynamicObjectives.NotifyStateChanged(player)
+        elseif player.transmitModData then
+            player:transmitModData()
+        end
+        if sendServerCommand then
+            sendServerCommand(player, "DynamicObjectives", "ObjectiveHooksRefreshed", {
+                hookId = args.hookId,
+                forced = true,
+            })
+        end
     elseif command == "FinalizeObjectiveHookQuest" then
         if not player or type(args) ~= "table" then
             return

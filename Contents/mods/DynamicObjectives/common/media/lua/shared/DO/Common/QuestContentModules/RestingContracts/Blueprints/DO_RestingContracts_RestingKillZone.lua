@@ -35,6 +35,13 @@ DO.RegisterQuestBlueprint("resting_kill_zone", {
         requireAreaClear = true,
         requirePlayerPresence = true,
     },
+    generation = {
+        enabled = true,
+        rewardProfile = "killzone_default",
+        offerTtlHours = 6,
+        allowProceduralCash = true,
+        allowProceduralReputation = true,
+    },
     rewardPools = { "default_killzone_rewards" },
     dialogueTree = "default_killzone_dialogue",
     objective = {

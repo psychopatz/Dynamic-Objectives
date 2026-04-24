@@ -6,6 +6,42 @@ local Quests = DO.Quests
 Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
+local function applyQuestFocus(store, quest)
+    if not store or not quest or quest.status ~= "active" then
+        return false
+    end
+
+    store.trackedQuestID = quest.id
+    store.locatedQuestID = quest.id
+    store.locatorSuppressed = false
+
+    for _, other in ipairs(store.quests or {}) do
+        local isFocused = other.id == quest.id
+        other.tracked = isFocused
+        other.located = isFocused
+    end
+    return true
+end
+
+function Quests.FocusQuest(player, questID, silent)
+    local store = Runtime.getStore(player, true)
+    if not store then
+        return false
+    end
+
+    local quest = Runtime.findQuest(store, questID)
+    if not quest or quest.status ~= "active" then
+        return false
+    end
+
+    applyQuestFocus(store, quest)
+    if silent ~= true then
+        Runtime.say(player, "Focused objective: " .. tostring(quest.name))
+    end
+    Runtime.onQuestStateChanged(player)
+    return true
+end
+
 function Quests.SetTrackedQuest(player, questID)
     local store = Runtime.getStore(player, true)
     if not store then
@@ -49,6 +85,7 @@ function Quests.SetLocatedQuest(player, questID)
     end
 
     store.locatedQuestID = located.id
+    store.locatorSuppressed = false
     for _, quest in ipairs(store.quests or {}) do
         quest.located = quest.id == located.id
     end
@@ -70,6 +107,7 @@ function Quests.ClearLocatedQuest(player, questID, silent)
 
     local located = Runtime.findQuest(store, store.locatedQuestID)
     store.locatedQuestID = nil
+    store.locatorSuppressed = true
     for _, quest in ipairs(store.quests or {}) do
         quest.located = false
     end
@@ -243,9 +281,19 @@ function Quests.StartQuest(player, spec)
     quest.playerKey = DO.GetPlayerKey(player)
     quest.targetLocation = Runtime.normalizeLocation(quest.targetLocation or Runtime.buildFallbackDestination(player, quest.name))
     quest.baseDifficulty = Runtime.normalizeDifficulty(quest.baseDifficulty or quest.questDifficulty or quest.difficulty or Runtime.getConfiguredQuestDifficulty())
-    quest.difficulty, quest.difficultyFactors = Runtime.resolveQuestDifficulty(player, quest, quest.targetLocation)
+    if quest.precomputedDifficulty == true and tonumber(quest.difficulty) ~= nil then
+        quest.difficulty = Runtime.normalizeDifficulty(quest.difficulty)
+        quest.difficultyFactors = type(quest.difficultyFactors) == "table" and DO.DeepCopy(quest.difficultyFactors) or {}
+    else
+        quest.difficulty, quest.difficultyFactors = Runtime.resolveQuestDifficulty(player, quest, quest.targetLocation)
+    end
     quest.difficultyLabel = Runtime.getQuestDifficultyLabel(quest.difficulty)
-    quest.timeLimitHours = math.max(0, tonumber(quest.timeLimitHours or quest.timerHours or quest.expireHours) or 0)
+    quest.baseTimeLimitHours = math.max(0, tonumber(quest.baseTimeLimitHours or quest.timeLimitHours or quest.timerHours or quest.expireHours) or 0)
+    quest.timeLimitHours = Runtime.scaleQuestTimeLimit(
+        quest.expirationScaled == true and quest.timeLimitHours or quest.baseTimeLimitHours,
+        quest.expirationScaled == true
+    )
+    quest.expirationScaled = true
     if quest.timeLimitHours > 0 then
         quest.expiresAtWorldHours = quest.startedAtWorldHours + quest.timeLimitHours
     else
@@ -258,6 +306,14 @@ function Quests.StartQuest(player, spec)
     quest.chainAdvanceMode = quest.chainAdvanceMode and tostring(quest.chainAdvanceMode) or nil
     quest.chainNextStageId = quest.chainNextStageId and tostring(quest.chainNextStageId) or nil
     quest.isChainQuest = quest.chainId ~= nil
+    quest.title = quest.title and tostring(quest.title) or nil
+    quest.giverName = quest.giverName and tostring(quest.giverName) or nil
+    quest.giverTitle = quest.giverTitle and tostring(quest.giverTitle) or nil
+    quest.giverFactionID = quest.giverFactionID and tostring(quest.giverFactionID) or nil
+    quest.giverFactionName = quest.giverFactionName and tostring(quest.giverFactionName) or nil
+    quest.themeID = quest.themeID and tostring(quest.themeID) or nil
+    quest.budgetValue = tonumber(quest.budgetValue) or nil
+    quest.rewardTags = type(quest.rewardTags) == "table" and DO.DeepCopy(quest.rewardTags) or {}
     quest.encounter = Runtime.normalizeEncounter(quest, quest.encounter)
     quest.objectives = type(quest.objectives) == "table" and quest.objectives or {}
 
@@ -292,14 +348,7 @@ function Quests.StartQuest(player, spec)
     store.quests[#store.quests + 1] = quest
     Runtime.markBlueprintLedger(store, quest, "lastStartedAtWorldHours")
     Runtime.markChainQuestStarted(store, quest)
-
-    if not store.trackedQuestID then
-        store.trackedQuestID = quest.id
-        quest.tracked = true
-    else
-        quest.tracked = store.trackedQuestID == quest.id
-    end
-    quest.located = store.locatedQuestID == quest.id
+    applyQuestFocus(store, quest)
 
     if quest.grantItemType and Quests.RequestSpawnQuestItem then
         Quests.RequestSpawnQuestItem(player, quest.grantItemType, tonumber(quest.grantItemDifficulty) or 1.0, quest.id)

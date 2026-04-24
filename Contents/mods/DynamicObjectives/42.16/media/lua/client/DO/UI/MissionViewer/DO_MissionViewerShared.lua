@@ -51,6 +51,15 @@ function DO_MissionViewerShared.getSecondaryText(summary)
     if not summary then
         return ""
     end
+    if summary.giverName then
+        local issuer = summary.giverTitle and summary.giverTitle ~= ""
+            and (tostring(summary.giverName) .. " (" .. tostring(summary.giverTitle) .. ")")
+            or tostring(summary.giverName)
+        if summary.giverFactionName and summary.giverFactionName ~= "" then
+            issuer = issuer .. " - " .. tostring(summary.giverFactionName)
+        end
+        return issuer
+    end
     return tostring(summary.chainSummary or summary.currentObjectiveLabel or summary.targetLabel or "")
 end
 
@@ -93,8 +102,23 @@ function DO_MissionViewerShared.buildDetailText(detail)
     local remaining = DO_MissionViewerShared.formatRemainingHours(detail.timeRemainingHours)
 
     appendLine(parts, statusColor, "Status: " .. tostring(detail.statusLabel or "Active"))
+    if detail.title and detail.title ~= "" and detail.title ~= detail.name then
+        appendLine(parts, { r = 0.98, g = 0.9, b = 0.62 }, "Contract: " .. tostring(detail.title))
+    end
+    if detail.giverName and detail.giverName ~= "" then
+        local issuer = detail.giverTitle and detail.giverTitle ~= ""
+            and (tostring(detail.giverName) .. " (" .. tostring(detail.giverTitle) .. ")")
+            or tostring(detail.giverName)
+        if detail.giverFactionName and detail.giverFactionName ~= "" then
+            issuer = issuer .. " - " .. tostring(detail.giverFactionName)
+        end
+        appendLine(parts, { r = 0.76, g = 0.86, b = 0.98 }, "Issuer: " .. issuer)
+    end
     if detail.chainSummary then
         appendLine(parts, { r = 0.62, g = 0.82, b = 1.0 }, "Chain: " .. tostring(detail.chainSummary))
+    end
+    if detail.themeID and detail.themeID ~= "" then
+        appendLine(parts, { r = 0.78, g = 0.88, b = 0.74 }, "Theme: " .. tostring(detail.themeID))
     end
     if detail.targetLabel and detail.targetLabel ~= "" then
         appendLine(parts, { r = 0.82, g = 0.84, b = 0.88 }, "Target: " .. tostring(detail.targetLabel))

@@ -102,7 +102,10 @@ function DO_ObjectiveHUD:measureExpandedSize()
     local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
     local baseHeaderWidth = 56 + buttonWidth + missionsWidth + 12
 
-    bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.name or "Objective") + baseHeaderWidth)
+    bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.title or data.name or "Objective") + baseHeaderWidth)
+    if data.giverName and data.giverName ~= "" then
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.giverName) .. " - " .. tostring(data.giverFactionName or "Independent")) + 40)
+    end
     bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.chainSummary or "")) + 40)
     bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.targetLabel or "")) + 40)
     bodyWidth = math.max(
@@ -144,6 +147,9 @@ function DO_ObjectiveHUD:measureExpandedSize()
     local height = 52
     height = height + 24
     if data.chainSummary and data.chainSummary ~= "" then
+        height = height + 18
+    end
+    if data.giverName and data.giverName ~= "" then
         height = height + 18
     end
     if data.targetLabel and data.targetLabel ~= "" then
@@ -340,11 +346,25 @@ function DO_ObjectiveHUD:renderExpanded()
         0.98,
         UIFont.Small
     )
-    self:drawText(self.data.name or "Objective", x, y, 1, 1, 1, 0.98, UIFont.Medium)
+    self:drawText(self.data.title or self.data.name or "Objective", x, y, 1, 1, 1, 0.98, UIFont.Medium)
     y = y + 22
 
     if self.data.chainSummary and self.data.chainSummary ~= "" then
         self:drawText(self.data.chainSummary, x, y, 0.66, 0.84, 1.0, 0.94, UIFont.Small)
+        y = y + 18
+    end
+
+    if self.data.giverName and self.data.giverName ~= "" then
+        self:drawText(
+            tostring(self.data.giverName) .. " - " .. tostring(self.data.giverFactionName or "Independent"),
+            x,
+            y,
+            0.72,
+            0.84,
+            0.98,
+            0.94,
+            UIFont.Small
+        )
         y = y + 18
     end
 

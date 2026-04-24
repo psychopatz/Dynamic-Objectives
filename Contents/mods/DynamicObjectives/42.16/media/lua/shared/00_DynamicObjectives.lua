@@ -160,6 +160,11 @@ function DO.NotifyStateChanged(player)
     if DO.ClearIndicators and DO.ClearIndicators.RequestFullRefresh then
         DO.ClearIndicators.RequestFullRefresh()
     end
+
+    if DT_RadioScannerWindow and DT_RadioScannerWindow.instance and DT_RadioScannerWindow.instance.currentCategory == "Quest" then
+        DT_RadioScannerWindow.instance.skipQuestServerRefresh = true
+        DT_RadioScannerWindow.instance:refresh()
+    end
 end
 
 require "DO/Integration/DO_V2Integration"

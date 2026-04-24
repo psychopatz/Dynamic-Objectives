@@ -68,12 +68,20 @@ local function getPlayerDisplayName(player)
 end
 
 local function buildTraderDialogueContext(player, traderContext, blueprint, questSpec, activeQuest)
+    local dialogueData = Runtime.buildProceduralDialogueTokens and Runtime.buildProceduralDialogueTokens(questSpec or activeQuest or blueprint, traderContext) or nil
+    local giver = dialogueData and dialogueData.giver or {}
+    local theme = dialogueData and dialogueData.theme or { label = "Mixed" }
+    local traderName = tostring(giver.giverName or (traderContext and (traderContext.displayName or traderContext.name)) or "trader")
+    local traderFaction = tostring(giver.giverFactionName or "Independent")
     local context = {
         player = getPlayerDisplayName(player),
         ["player.firstname"] = getPlayerFirstName(player),
-        trader = tostring(traderContext and (traderContext.displayName or traderContext.name) or "trader"),
-        ["trader.name"] = tostring(traderContext and (traderContext.displayName or traderContext.name) or "trader"),
+        trader = traderName,
+        ["trader.name"] = traderName,
+        ["trader.faction"] = traderFaction,
         ["quest.name"] = tostring((questSpec and questSpec.name) or (activeQuest and activeQuest.name) or (blueprint and blueprint.name) or "Objective"),
+        ["quest.title"] = tostring((questSpec and questSpec.title) or (activeQuest and activeQuest.title) or (blueprint and blueprint.title) or (questSpec and questSpec.name) or (activeQuest and activeQuest.name) or (blueprint and blueprint.name) or "Objective"),
+        ["quest.theme"] = tostring((questSpec and questSpec.themeID) or (activeQuest and activeQuest.themeID) or theme.label or "Mixed"),
         ["target.label"] = tostring(
             (questSpec and questSpec.targetLocation and questSpec.targetLocation.label)
                 or (activeQuest and activeQuest.targetLocation and activeQuest.targetLocation.label)
@@ -86,6 +94,9 @@ local function buildTraderDialogueContext(player, traderContext, blueprint, ques
                 or "payment on completion"
         ),
         ["family"] = tostring(blueprint and blueprint.family or "Quest"),
+        ["giver.name"] = traderName,
+        ["giver.title"] = tostring(giver.giverTitle or traderName),
+        ["giver.faction"] = traderFaction,
     }
 
     return context
@@ -139,13 +150,18 @@ local function resolveBlueprintTarget(player, blueprint)
     return resolved
 end
 
-local function resolveBlueprintRewards(blueprint)
+local function resolveBlueprintRewards(blueprint, options)
+    options = type(options) == "table" and options or {}
     local resolved = {}
 
     if type(blueprint and blueprint.rewards) == "table" then
         for _, reward in ipairs(blueprint.rewards) do
             resolved[#resolved + 1] = DO.DeepCopy(reward)
         end
+    end
+
+    if options.skipRewardPools == true then
+        return resolved
     end
 
     local rewardPools = type(blueprint and blueprint.rewardPools) == "table" and blueprint.rewardPools or {}
@@ -165,12 +181,13 @@ local function resolveBlueprintRewards(blueprint)
     return resolved
 end
 
-local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, overrides)
+local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint, overrides, options)
     if type(blueprint) ~= "table" then
         return nil
     end
 
     overrides = type(overrides) == "table" and overrides or {}
+    options = type(options) == "table" and options or {}
 
     local targetLocation = resolveBlueprintTarget(player, blueprint)
     local baseDifficulty = Runtime.normalizeDifficulty(
@@ -180,8 +197,11 @@ local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, ove
             or blueprint.difficulty
             or 1.0
     )
-    local timeLimitHours = math.max(0, tonumber(overrides.timeLimitHours or blueprint.timeLimitHours or blueprint.timerHours or 0) or 0)
-    local rewards = resolveBlueprintRewards(blueprint)
+    local baseTimeLimitHours = math.max(0, tonumber(overrides.timeLimitHours or blueprint.timeLimitHours or blueprint.timerHours or 0) or 0)
+    local timeLimitHours = Runtime.scaleQuestTimeLimit(baseTimeLimitHours)
+    local rewards = resolveBlueprintRewards(blueprint, {
+        skipRewardPools = options.skipRewardPools == true,
+    })
     local rewardContext = buildQuestRewardContext(targetLocation, traderContext)
     local family = tostring(blueprint.family or "")
     local objectiveConfig = type(blueprint.objective) == "table" and blueprint.objective or {}
@@ -189,7 +209,9 @@ local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, ove
     local spec = {
         name = tostring(blueprint.name or blueprint.id),
         baseDifficulty = baseDifficulty,
+        baseTimeLimitHours = baseTimeLimitHours,
         timeLimitHours = timeLimitHours,
+        expirationScaled = true,
         rewardContext = rewardContext,
         targetLocation = targetLocation,
         rewards = rewards,
@@ -293,6 +315,30 @@ local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, ove
     return spec
 end
 
+local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, overrides)
+    if type(blueprint) ~= "table" then
+        return nil
+    end
+
+    overrides = type(overrides) == "table" and overrides or {}
+    if Runtime.isProceduralGenerationEnabled and Runtime.isProceduralGenerationEnabled(blueprint) then
+        local store = Runtime.getStore(player, true)
+        local spec = Runtime.buildProceduralBlueprintSpec and Runtime.buildProceduralBlueprintSpec(player, store, traderContext, blueprint, overrides, function()
+            return buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint, overrides, {
+                skipRewardPools = true,
+            })
+        end) or nil
+        if spec then
+            if DO.Rewards and DO.Rewards.NormalizeRewards then
+                DO.Rewards.NormalizeRewards(spec, spec.rewards)
+            end
+            return spec
+        end
+    end
+
+    return buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint, overrides)
+end
+
 local function getActiveQuestForBlueprint(store, blueprintID)
     if not store or not blueprintID then
         return nil
@@ -390,6 +436,7 @@ Runtime.buildQuestRewardContext = buildQuestRewardContext
 Runtime.resolveBlueprintDialogueTree = resolveBlueprintDialogueTree
 Runtime.resolveBlueprintTarget = resolveBlueprintTarget
 Runtime.resolveBlueprintRewards = resolveBlueprintRewards
+Runtime.buildBaseQuestSpecFromBlueprint = buildBaseQuestSpecFromBlueprint
 Runtime.buildQuestSpecFromBlueprint = buildQuestSpecFromBlueprint
 Runtime.getActiveQuestForBlueprint = getActiveQuestForBlueprint
 Runtime.getBlueprintCooldownRemaining = getBlueprintCooldownRemaining

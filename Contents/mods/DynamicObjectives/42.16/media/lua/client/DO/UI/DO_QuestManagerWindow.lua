@@ -483,37 +483,36 @@ function DO_QuestManagerWindow:buildPackageFromEditor()
         end
     end
 
-    local blueprint = {
-        id = blueprintID,
-        name = trim(self.nameEntry:getText()) ~= "" and trim(self.nameEntry:getText()) or blueprintID,
-        family = family,
-        enabled = true,
-        weight = tonumber(self.weightEntry:getText()) or 1,
-        difficulty = tonumber(self.difficultyEntry:getText()) or 1.0,
-        timeLimitHours = tonumber(self.timerEntry:getText()) or 0,
-        cooldown = tonumber(self.cooldownEntry:getText()) or 0,
-        eligibility = {
-            traderStates = splitList(self.statesEntry:getText()),
-            archetypes = splitList(self.archetypeEntry:getText()),
-            factionIDs = splitList(self.factionEntry:getText()),
-        },
-        target = {
-            label = trim(self.targetLabelEntry:getText()),
-            purpose = trim(self.targetPurposeEntry:getText()),
-            radius = tonumber(self.targetRadiusEntry:getText()) or 20,
-        },
-        rewardPools = { rewardPoolID },
-        dialogueTree = dialogueID,
-        objective = {
-            label = trim(self.killLabelEntry:getText()),
-            killLabel = trim(self.killLabelEntry:getText()),
-            dropLabel = trim(self.dropLabelEntry:getText()),
-            deliverLabel = trim(self.deliverLabelEntry:getText()),
-            spawnAfterKills = tonumber(self.spawnAfterEntry:getText()) or 4,
-            consumeOnComplete = true,
-            completeRemainingObjectives = true,
-            completeQuestOnComplete = true,
-        },
+    local blueprint = DO.DeepCopy(self.loadedBlueprint or {})
+    blueprint.id = blueprintID
+    blueprint.name = trim(self.nameEntry:getText()) ~= "" and trim(self.nameEntry:getText()) or blueprintID
+    blueprint.family = family
+    blueprint.enabled = true
+    blueprint.weight = tonumber(self.weightEntry:getText()) or 1
+    blueprint.difficulty = tonumber(self.difficultyEntry:getText()) or 1.0
+    blueprint.timeLimitHours = tonumber(self.timerEntry:getText()) or 0
+    blueprint.cooldown = tonumber(self.cooldownEntry:getText()) or 0
+    blueprint.eligibility = {
+        traderStates = splitList(self.statesEntry:getText()),
+        archetypes = splitList(self.archetypeEntry:getText()),
+        factionIDs = splitList(self.factionEntry:getText()),
+    }
+    blueprint.target = {
+        label = trim(self.targetLabelEntry:getText()),
+        purpose = trim(self.targetPurposeEntry:getText()),
+        radius = tonumber(self.targetRadiusEntry:getText()) or 20,
+    }
+    blueprint.rewardPools = { rewardPoolID }
+    blueprint.dialogueTree = dialogueID
+    blueprint.objective = {
+        label = trim(self.killLabelEntry:getText()),
+        killLabel = trim(self.killLabelEntry:getText()),
+        dropLabel = trim(self.dropLabelEntry:getText()),
+        deliverLabel = trim(self.deliverLabelEntry:getText()),
+        spawnAfterKills = tonumber(self.spawnAfterEntry:getText()) or 4,
+        consumeOnComplete = true,
+        completeRemainingObjectives = true,
+        completeQuestOnComplete = true,
     }
 
     if family == "Courier" then
@@ -596,6 +595,8 @@ function DO_QuestManagerWindow:loadBlueprintIntoEditor(blueprintID)
         return
     end
 
+    self.loadedBlueprint = DO.DeepCopy(blueprint)
+
     self.idEntry:setText(tostring(blueprint.id or ""))
     self.nameEntry:setText(tostring(blueprint.name or blueprint.id or ""))
     self.familyEntry.selected = ({ Courier = 1, KillZone = 2, HuntDrop = 3 })[tostring(blueprint.family or "Courier")] or 1
@@ -656,6 +657,7 @@ function DO_QuestManagerWindow:onRefreshList()
 end
 
 function DO_QuestManagerWindow:onCreatePreset()
+    self.loadedBlueprint = nil
     local seed = tostring(math.floor(ZombRand(1000, 9999)))
     self.idEntry:setText("custom_quest_" .. seed)
     self.nameEntry:setText("Custom Quest " .. seed)

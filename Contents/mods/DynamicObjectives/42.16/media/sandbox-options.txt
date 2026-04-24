@@ -9,3 +9,13 @@ option DynamicObjectives.QuestDifficulty
     page = DynamicObjectives,
     translation = DynamicObjectives.QuestDifficulty,
 }
+
+option DynamicObjectives.QuestExpirationMultiplier
+{
+    type = double,
+    default = 1.0,
+    min = 0.0,
+    max = 5.0,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestExpirationMultiplier,
+}
