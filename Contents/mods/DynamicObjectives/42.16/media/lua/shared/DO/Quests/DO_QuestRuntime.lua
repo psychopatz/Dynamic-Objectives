@@ -39,6 +39,42 @@ local function isLivingZombie(zombie)
     return true
 end
 
+local MAX_ZONE_TARGET_SAMPLES = 6
+
+local function insertNearestZoneTarget(samples, zombie, referenceX, referenceY, referenceZ)
+    if type(samples) ~= "table" or not zombie then
+        return
+    end
+
+    local dx = (tonumber(zombie:getX()) or 0) - (tonumber(referenceX) or 0)
+    local dy = (tonumber(zombie:getY()) or 0) - (tonumber(referenceY) or 0)
+    local dz = (tonumber(zombie:getZ()) or 0) - (tonumber(referenceZ) or 0)
+    local sample = {
+        x = tonumber(zombie:getX()) or 0,
+        y = tonumber(zombie:getY()) or 0,
+        z = tonumber(zombie:getZ()) or 0,
+        distanceSq = (dx * dx) + (dy * dy) + (dz * dz * 4),
+    }
+
+    local inserted = false
+    for index = 1, #samples do
+        local existing = samples[index]
+        if sample.distanceSq < (existing and tonumber(existing.distanceSq) or math.huge) then
+            table.insert(samples, index, sample)
+            inserted = true
+            break
+        end
+    end
+
+    if not inserted then
+        samples[#samples + 1] = sample
+    end
+
+    while #samples > MAX_ZONE_TARGET_SAMPLES do
+        table.remove(samples)
+    end
+end
+
 local function getStore(player, create)
     if not player then
         return nil
@@ -60,6 +96,7 @@ local function getStore(player, create)
         store.version = Quests.STATE_VERSION
         store.seq = tonumber(store.seq) or 0
         store.quests = type(store.quests) == "table" and store.quests or {}
+        store.offerLedger = type(store.offerLedger) == "table" and store.offerLedger or {}
     end
 
     return store
@@ -251,6 +288,399 @@ local function scaleCountForDifficulty(count, difficulty)
     local baseCount = math.max(1, math.floor(tonumber(count) or 1))
     local scale = normalizeDifficulty(difficulty)
     return math.max(1, math.floor((baseCount * scale) + 0.5))
+end
+
+local function normalizeText(value)
+    return string.lower(tostring(value or ""))
+end
+
+local function matchesNormalizedList(value, list)
+    if type(list) ~= "table" or #list == 0 then
+        return true
+    end
+
+    local probe = normalizeText(value)
+    for _, candidate in ipairs(list) do
+        local normalized = normalizeText(candidate)
+        if normalized == "" or normalized == "*" or normalized == "any" or normalized == probe then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getBlueprintLedger(store, create)
+    if not store then
+        return nil
+    end
+
+    if create then
+        store.offerLedger = type(store.offerLedger) == "table" and store.offerLedger or {}
+    end
+
+    return store.offerLedger
+end
+
+local function getBlueprintLedgerEntry(store, blueprintID, create)
+    local ledger = getBlueprintLedger(store, create)
+    if not ledger or not blueprintID then
+        return nil
+    end
+
+    local key = tostring(blueprintID)
+    if create and type(ledger[key]) ~= "table" then
+        ledger[key] = {}
+    end
+
+    return ledger[key]
+end
+
+local function markBlueprintLedger(store, quest, fieldName)
+    if not store or not quest or not quest.blueprintId or not fieldName then
+        return
+    end
+
+    local entry = getBlueprintLedgerEntry(store, quest.blueprintId, true)
+    if not entry then
+        return
+    end
+
+    entry[fieldName] = getWorldAgeHours()
+    entry.lastQuestID = quest.id
+    entry.lastTraderID = quest.sourceTrader and (quest.sourceTrader.traderID or quest.sourceTrader.id) or entry.lastTraderID
+end
+
+local function getPlayerFirstName(player)
+    local descriptor = player and player.getDescriptor and player:getDescriptor() or nil
+    local forename = descriptor and descriptor.getForename and descriptor:getForename() or nil
+    if forename and forename ~= "" then
+        return tostring(forename)
+    end
+
+    local username = player and player.getUsername and player:getUsername() or nil
+    return tostring(username or "survivor")
+end
+
+local function getPlayerDisplayName(player)
+    local username = player and player.getUsername and player:getUsername() or nil
+    if username and username ~= "" then
+        return tostring(username)
+    end
+
+    return getPlayerFirstName(player)
+end
+
+local function buildTraderDialogueContext(player, traderContext, blueprint, questSpec, activeQuest)
+    local context = {
+        player = getPlayerDisplayName(player),
+        ["player.firstname"] = getPlayerFirstName(player),
+        trader = tostring(traderContext and (traderContext.displayName or traderContext.name) or "trader"),
+        ["trader.name"] = tostring(traderContext and (traderContext.displayName or traderContext.name) or "trader"),
+        ["quest.name"] = tostring((questSpec and questSpec.name) or (activeQuest and activeQuest.name) or (blueprint and blueprint.name) or "Objective"),
+        ["target.label"] = tostring(
+            (questSpec and questSpec.targetLocation and questSpec.targetLocation.label)
+                or (activeQuest and activeQuest.targetLocation and activeQuest.targetLocation.label)
+                or (blueprint and blueprint.target and (blueprint.target.label or blueprint.target.purpose))
+                or "the marked objective"
+        ),
+        ["rewardPreview"] = tostring(
+            (questSpec and questSpec.rewardPreview)
+                or (activeQuest and activeQuest.rewardPreview)
+                or "payment on completion"
+        ),
+        ["family"] = tostring(blueprint and blueprint.family or "Quest"),
+    }
+
+    return context
+end
+
+local function formatDialogueText(text, context)
+    local source = tostring(text or "")
+    if source == "" then
+        return source
+    end
+
+    return (string.gsub(source, "{([^}]+)}", function(token)
+        local key = tostring(token or "")
+        local value = context and context[key] or nil
+        if value == nil or value == "" then
+            return "{" .. key .. "}"
+        end
+        return tostring(value)
+    end))
+end
+
+local function buildQuestRewardContext(location, traderContext)
+    local context = buildDebugRewardContext(location)
+    if type(traderContext) == "table" then
+        if not context.factionID and traderContext.factionID then
+            context.factionID = tostring(traderContext.factionID)
+        end
+        if not context.factionName and traderContext.factionName then
+            context.factionName = tostring(traderContext.factionName)
+        end
+    end
+    return context
+end
+
+local function resolveBlueprintDialogueTree(blueprint)
+    local tree = blueprint and blueprint.dialogueTree and DO.GetQuestDialogueTree and DO.GetQuestDialogueTree(blueprint.dialogueTree) or nil
+    return type(tree) == "table" and DO.DeepCopy(tree) or { choices = {}, nodes = {} }
+end
+
+local function resolveBlueprintTarget(player, blueprint)
+    local targetConfig = type(blueprint and blueprint.target) == "table" and blueprint.target or {}
+    local resolved = buildFallbackDestination(player, targetConfig.purpose or blueprint.name or "Objective Site")
+    resolved = normalizeLocation(resolved or {})
+    resolved.label = tostring(targetConfig.label or resolved.label or blueprint.name or "Objective Site")
+    resolved.radius = math.max(1, math.floor(tonumber(targetConfig.radius or resolved.radius) or 45))
+    resolved.r = tonumber(targetConfig.r) or resolved.r
+    resolved.g = tonumber(targetConfig.g) or resolved.g
+    resolved.b = tonumber(targetConfig.b) or resolved.b
+    resolved.a = tonumber(targetConfig.a) or resolved.a
+    resolved.scale = tonumber(targetConfig.scale) or resolved.scale
+    return resolved
+end
+
+local function resolveBlueprintRewards(blueprint)
+    local resolved = {}
+
+    if type(blueprint and blueprint.rewards) == "table" then
+        for _, reward in ipairs(blueprint.rewards) do
+            resolved[#resolved + 1] = DO.DeepCopy(reward)
+        end
+    end
+
+    local rewardPools = type(blueprint and blueprint.rewardPools) == "table" and blueprint.rewardPools or {}
+    for _, poolID in ipairs(rewardPools) do
+        local entry = DO.ResolveWeightedEntry and DO.ResolveWeightedEntry(poolID) or nil
+        if type(entry) == "table" then
+            if type(entry.rewards) == "table" and #entry.rewards > 0 then
+                for _, reward in ipairs(entry.rewards) do
+                    resolved[#resolved + 1] = DO.DeepCopy(reward)
+                end
+            elseif entry.kind or entry.type then
+                resolved[#resolved + 1] = DO.DeepCopy(entry)
+            end
+        end
+    end
+
+    return resolved
+end
+
+local function buildQuestSpecFromBlueprint(player, traderContext, blueprint, overrides)
+    if type(blueprint) ~= "table" then
+        return nil
+    end
+
+    overrides = type(overrides) == "table" and overrides or {}
+
+    local targetLocation = resolveBlueprintTarget(player, blueprint)
+    local baseDifficulty = normalizeDifficulty(
+        overrides.baseDifficulty
+            or blueprint.baseDifficulty
+            or blueprint.questDifficulty
+            or blueprint.difficulty
+            or 1.0
+    )
+    local timeLimitHours = math.max(0, tonumber(overrides.timeLimitHours or blueprint.timeLimitHours or blueprint.timerHours or 0) or 0)
+    local rewards = resolveBlueprintRewards(blueprint)
+    local rewardContext = buildQuestRewardContext(targetLocation, traderContext)
+    local family = tostring(blueprint.family or "")
+    local objectiveConfig = type(blueprint.objective) == "table" and blueprint.objective or {}
+
+    local spec = {
+        name = tostring(blueprint.name or blueprint.id),
+        baseDifficulty = baseDifficulty,
+        timeLimitHours = timeLimitHours,
+        rewardContext = rewardContext,
+        targetLocation = targetLocation,
+        rewards = rewards,
+        blueprintId = tostring(blueprint.id or ""),
+        blueprintFamily = family,
+        sourceTrader = DO.DeepCopy(traderContext or {}),
+        dialogueTree = blueprint.dialogueTree and tostring(blueprint.dialogueTree) or nil,
+    }
+
+    if family == "Courier" then
+        local grantEntry = DO.ResolveWeightedEntry and DO.ResolveWeightedEntry(blueprint.grantItemPool) or nil
+        local grantItemType = grantEntry and tostring(grantEntry.itemType or grantEntry.item or "") or nil
+        spec.grantItemType = grantItemType ~= "" and grantItemType or nil
+        spec.grantItemDifficulty = normalizeDifficulty(
+            (grantEntry and grantEntry.difficulty)
+                or blueprint.grantItemDifficulty
+                or baseDifficulty
+        )
+        spec.objectives = {
+            {
+                id = tostring(objectiveConfig.id or "deliver_package"),
+                type = "deliverItem",
+                label = tostring(objectiveConfig.label or "Deliver the package"),
+                required = 1,
+                questItemType = spec.grantItemType,
+                consumeOnComplete = objectiveConfig.consumeOnComplete ~= false,
+                radius = targetLocation.radius,
+            },
+        }
+    elseif family == "KillZone" then
+        local encounterConfig = type(blueprint.encounter) == "table" and blueprint.encounter or {}
+        local baseCount = math.max(1, math.floor(tonumber(encounterConfig.baseCount or encounterConfig.count) or 1))
+        spec.encounter = {
+            id = tostring(encounterConfig.id or "kill_zone_encounter"),
+            kind = tostring(encounterConfig.kind or "kill_zone"),
+            count = baseCount,
+            spawnRadius = math.max(4, math.floor(tonumber(encounterConfig.spawnRadius) or 18)),
+            clearRadius = math.max(6, math.floor(tonumber(encounterConfig.clearRadius or targetLocation.radius) or targetLocation.radius)),
+            spawnMode = tostring(encounterConfig.spawnMode or "building"),
+            requireAreaClear = encounterConfig.requireAreaClear ~= false,
+            requirePlayerPresence = encounterConfig.requirePlayerPresence ~= false,
+        }
+        spec.objectives = {
+            {
+                id = tostring(objectiveConfig.id or "kill_zone"),
+                type = "kill",
+                label = tostring(objectiveConfig.label or "Eliminate the infestation"),
+                required = baseCount,
+                radius = targetLocation.radius,
+                encounterOnly = true,
+                requireAreaClear = spec.encounter.requireAreaClear == true,
+            },
+        }
+    elseif family == "HuntDrop" then
+        local encounterConfig = type(blueprint.encounter) == "table" and blueprint.encounter or {}
+        local baseCount = math.max(1, math.floor(tonumber(encounterConfig.baseCount or encounterConfig.count) or 1))
+        local dropEntry = DO.ResolveWeightedEntry and DO.ResolveWeightedEntry(blueprint.dropItemPool) or nil
+        local dropItemType = dropEntry and tostring(dropEntry.itemType or dropEntry.item or "") or nil
+        spec.encounter = {
+            id = tostring(encounterConfig.id or "sample_hunt_encounter"),
+            kind = tostring(encounterConfig.kind or "hunt_drop"),
+            count = baseCount,
+            spawnRadius = math.max(4, math.floor(tonumber(encounterConfig.spawnRadius) or 18)),
+            clearRadius = math.max(6, math.floor(tonumber(encounterConfig.clearRadius or targetLocation.radius) or targetLocation.radius)),
+            spawnMode = tostring(encounterConfig.spawnMode or "building"),
+            requireAreaClear = encounterConfig.requireAreaClear ~= false,
+            requirePlayerPresence = encounterConfig.requirePlayerPresence ~= false,
+        }
+        spec.objectives = {
+            {
+                id = tostring(objectiveConfig.killID or "kill_for_drop"),
+                type = "kill",
+                label = tostring(objectiveConfig.killLabel or "Purge the marked cluster"),
+                required = baseCount,
+                radius = targetLocation.radius,
+                encounterOnly = true,
+                requireAreaClear = spec.encounter.requireAreaClear == true,
+            },
+            {
+                id = tostring(objectiveConfig.dropID or "recover_drop"),
+                type = "obtainDrop",
+                label = tostring(objectiveConfig.dropLabel or "Recover the objective"),
+                required = 1,
+                radius = targetLocation.radius,
+                dropItemType = dropItemType ~= "" and dropItemType or nil,
+                spawnAfterKills = math.max(1, math.floor(tonumber(objectiveConfig.spawnAfterKills) or 4)),
+                encounterOnly = true,
+                requireAreaClear = spec.encounter.requireAreaClear == true,
+                completeRemainingObjectives = objectiveConfig.completeRemainingObjectives == true,
+                completeQuestOnComplete = objectiveConfig.completeQuestOnComplete == true,
+            },
+        }
+    else
+        return nil
+    end
+
+    if DO.Rewards and DO.Rewards.NormalizeRewards then
+        DO.Rewards.NormalizeRewards(spec, spec.rewards)
+    end
+
+    return spec
+end
+
+local function getActiveQuestForBlueprint(store, blueprintID)
+    if not store or not blueprintID then
+        return nil
+    end
+
+    for _, quest in ipairs(store.quests or {}) do
+        if quest.status == "active" and tostring(quest.blueprintId or "") == tostring(blueprintID) then
+            return quest
+        end
+    end
+
+    return nil
+end
+
+local function getBlueprintCooldownRemaining(store, blueprint)
+    if not store or type(blueprint) ~= "table" then
+        return 0
+    end
+
+    local cooldownHours = math.max(0, tonumber(blueprint.cooldown or blueprint.cooldownHours) or 0)
+    if cooldownHours <= 0 then
+        return 0
+    end
+
+    local entry = getBlueprintLedgerEntry(store, blueprint.id, false)
+    if not entry then
+        return 0
+    end
+
+    local lastUsed = math.max(
+        tonumber(entry.lastCompletedAtWorldHours) or 0,
+        tonumber(entry.lastFailedAtWorldHours) or 0,
+        tonumber(entry.lastAbandonedAtWorldHours) or 0
+    )
+    if lastUsed <= 0 then
+        return 0
+    end
+
+    return math.max(0, cooldownHours - (getWorldAgeHours() - lastUsed))
+end
+
+local function blueprintMatchesEligibility(player, traderContext, blueprint)
+    local eligibility = type(blueprint and blueprint.eligibility) == "table" and blueprint.eligibility or {}
+    local traderID = traderContext and (traderContext.traderID or traderContext.id) or nil
+    local traderState = traderContext and (traderContext.currentState or traderContext.state or traderContext.status) or nil
+    local traderArchetype = traderContext and (traderContext.archetype or traderContext.role) or nil
+    local factionID = traderContext and traderContext.factionID or nil
+
+    if not matchesNormalizedList(traderState, eligibility.traderStates) then
+        return false
+    end
+    if not matchesNormalizedList(traderArchetype, eligibility.archetypes) then
+        return false
+    end
+    if not matchesNormalizedList(factionID, eligibility.factionIDs) then
+        return false
+    end
+    if not matchesNormalizedList(traderID, eligibility.traderIDs) then
+        return false
+    end
+
+    return true
+end
+
+local function pickWeightedOffer(offers)
+    local totalWeight = 0
+    for _, offer in ipairs(offers or {}) do
+        totalWeight = totalWeight + math.max(0.1, tonumber(offer.weight) or 1)
+    end
+
+    if totalWeight <= 0 or #offers == 0 then
+        return offers and offers[1] or nil
+    end
+
+    local roll = ZombRandFloat(0, totalWeight)
+    local cursor = 0
+    for _, offer in ipairs(offers) do
+        cursor = cursor + math.max(0.1, tonumber(offer.weight) or 1)
+        if roll <= cursor then
+            return offer
+        end
+    end
+
+    return offers[#offers]
 end
 
 local function normalizeEncounter(quest, encounter)
@@ -540,6 +970,10 @@ local function gatherLiveZoneState(player, quest, objective)
     local clearRadius = encounter and encounter.clearRadius or (location and location.radius) or 45
     local playerPresent = false
     local nearbyCount = 0
+    local targetSamples = {}
+    local playerX = player and tonumber(player:getX()) or (location and tonumber(location.x) or 0)
+    local playerY = player and tonumber(player:getY()) or (location and tonumber(location.y) or 0)
+    local playerZ = player and tonumber(player:getZ()) or (location and tonumber(location.z) or 0)
 
     if player and location then
         playerPresent = isWithinRadius(location, clearRadius + 8, player:getX(), player:getY(), player:getZ())
@@ -554,6 +988,7 @@ local function gatherLiveZoneState(player, quest, objective)
                 and isWithinRadius(location, clearRadius, zombie:getX(), zombie:getY(), zombie:getZ())
             then
                 nearbyCount = nearbyCount + 1
+                insertNearestZoneTarget(targetSamples, zombie, playerX, playerY, playerZ)
             end
         end
     end
@@ -573,6 +1008,8 @@ local function gatherLiveZoneState(player, quest, objective)
         playerPresent = playerPresent,
         areaClear = areaClear,
         encounterSpawned = encounter and encounter.spawned == true or false,
+        targetSamples = targetSamples,
+        closestTarget = targetSamples[1],
     }
 end
 
@@ -648,6 +1085,151 @@ function Quests.GetStore(player, create)
     return getStore(player, create)
 end
 
+function Quests.GetEligibleTraderOffers(player, traderContext)
+    local results = {}
+    local store = getStore(player, true)
+    if not store or not DO.GetQuestBlueprintList then
+        return results
+    end
+
+    for _, blueprint in ipairs(DO.GetQuestBlueprintList()) do
+        if blueprint and blueprint.enabled ~= false and blueprintMatchesEligibility(player, traderContext, blueprint) then
+            local activeQuest = getActiveQuestForBlueprint(store, blueprint.id)
+            local cooldownRemaining = getBlueprintCooldownRemaining(store, blueprint)
+            local questSpec = nil
+            if not activeQuest and cooldownRemaining <= 0 then
+                questSpec = buildQuestSpecFromBlueprint(player, traderContext, blueprint)
+            end
+
+            results[#results + 1] = {
+                blueprintId = blueprint.id,
+                blueprint = blueprint,
+                activeQuest = activeQuest,
+                cooldownRemainingHours = cooldownRemaining,
+                canStart = activeQuest == nil and cooldownRemaining <= 0 and questSpec ~= nil,
+                weight = tonumber(blueprint.weight) or 1,
+                questSpec = questSpec,
+                dialogueTree = resolveBlueprintDialogueTree(blueprint),
+            }
+        end
+    end
+
+    return results
+end
+
+function Quests.BuildTraderQuestOffer(player, traderContext)
+    local offers = Quests.GetEligibleTraderOffers(player, traderContext)
+    if #offers == 0 then
+        return nil
+    end
+
+    local startable = {}
+    local active = {}
+    local blocked = {}
+
+    for _, offer in ipairs(offers) do
+        if offer.canStart == true then
+            startable[#startable + 1] = offer
+        elseif offer.activeQuest then
+            active[#active + 1] = offer
+        else
+            blocked[#blocked + 1] = offer
+        end
+    end
+
+    local selected = pickWeightedOffer(#startable > 0 and startable or (#active > 0 and active or blocked))
+    if not selected then
+        return nil
+    end
+
+    local blueprint = selected.blueprint
+    local tree = selected.dialogueTree or { nodes = {}, choices = {} }
+    local context = buildTraderDialogueContext(player, traderContext, blueprint, selected.questSpec, selected.activeQuest)
+
+    selected.choiceLabels = {
+        accept = tostring(tree.choices and tree.choices.accept or "Accept"),
+        details = tostring(tree.choices and tree.choices.details or "Tell me more"),
+        rewards = tostring(tree.choices and tree.choices.rewards or "What's the reward?"),
+        decline = tostring(tree.choices and tree.choices.decline or "Not now"),
+        back = tostring(tree.choices and tree.choices.back or "Back"),
+    }
+
+    local activeQuest = selected.activeQuest
+    if activeQuest then
+        context["rewardPreview"] = tostring(activeQuest.rewardPreview or context["rewardPreview"])
+        context["quest.name"] = tostring(activeQuest.name or context["quest.name"])
+        if activeQuest.targetLocation and activeQuest.targetLocation.label then
+            context["target.label"] = tostring(activeQuest.targetLocation.label)
+        end
+    end
+
+    local unavailableSuffix = ""
+    if tonumber(selected.cooldownRemainingHours) and tonumber(selected.cooldownRemainingHours) > 0 then
+        unavailableSuffix = string.format(" Check back in %.1f hours.", tonumber(selected.cooldownRemainingHours))
+    end
+
+    selected.resolvedDialogue = {
+        offer = formatDialogueText(tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
+        details = formatDialogueText(tree.nodes and tree.nodes.details and tree.nodes.details.text or tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
+        rewards = formatDialogueText(tree.nodes and tree.nodes.rewards and tree.nodes.rewards.text or "", context),
+        accept = formatDialogueText(tree.nodes and tree.nodes.accept and tree.nodes.accept.text or "Objective accepted.", context),
+        decline = formatDialogueText(tree.nodes and tree.nodes.decline and tree.nodes.decline.text or "Maybe later.", context),
+        active = formatDialogueText(
+            tree.nodes and tree.nodes.active and tree.nodes.active.text or (activeQuest and Quests.BuildSummaryText(activeQuest, player) or "You already have this objective."),
+            context
+        ),
+        unavailable = formatDialogueText(
+            tree.nodes and tree.nodes.unavailable and tree.nodes.unavailable.text or ("No work from me right now." .. unavailableSuffix),
+            context
+        ),
+    }
+
+    if activeQuest then
+        selected.progressSummary = Quests.BuildSummaryText(activeQuest, player)
+    elseif selected.questSpec then
+        selected.progressSummary = Quests.BuildSummaryText(selected.questSpec, player)
+    end
+
+    return selected
+end
+
+function Quests.StartQuestFromBlueprint(player, traderContext, blueprintID)
+    local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint(blueprintID) or nil
+    if not blueprint then
+        return nil
+    end
+
+    local store = getStore(player, true)
+    if getActiveQuestForBlueprint(store, blueprint.id) then
+        return nil
+    end
+    if getBlueprintCooldownRemaining(store, blueprint) > 0 then
+        return nil
+    end
+
+    local spec = buildQuestSpecFromBlueprint(player, traderContext, blueprint)
+    if not spec then
+        return nil
+    end
+
+    return Quests.StartQuest(player, spec)
+end
+
+function Quests.StartQuestFromResolvedOffer(player, offer)
+    if not player or type(offer) ~= "table" or type(offer.questSpec) ~= "table" then
+        return nil
+    end
+
+    local blueprintID = offer.blueprintId or (offer.questSpec and offer.questSpec.blueprintId) or nil
+    local blueprint = blueprintID and DO.GetQuestBlueprint and DO.GetQuestBlueprint(blueprintID) or nil
+    local store = getStore(player, true)
+    if blueprint and (getActiveQuestForBlueprint(store, blueprint.id) or getBlueprintCooldownRemaining(store, blueprint) > 0) then
+        return nil
+    end
+
+    return Quests.StartQuest(player, DO.DeepCopy(offer.questSpec))
+end
+
 function Quests.GetActiveQuests(player)
     local store = getStore(player, false)
     if not store then
@@ -684,6 +1266,37 @@ function Quests.GetEncounterStatus(player, quest)
     end
 
     return gatherLiveZoneState(player, quest, getPendingObjective(quest))
+end
+
+function Quests.GetClearanceTargetData(player, quest)
+    local zoneState = Quests.GetEncounterStatus(player, quest)
+    if not zoneState or zoneState.areaClear == true or zoneState.encounterSpawned ~= true then
+        return nil
+    end
+
+    local targets = zoneState.targetSamples or {}
+    if #targets == 0 then
+        return nil
+    end
+
+    return {
+        questID = quest.id,
+        questName = tostring(quest.name or quest.id),
+        location = zoneState.location,
+        clearRadius = zoneState.clearRadius,
+        nearbyZombies = zoneState.nearbyZombies,
+        playerPresent = zoneState.playerPresent,
+        targetSamples = DO.DeepCopy(targets),
+    }
+end
+
+function Quests.GetTrackedClearanceTargetData(player)
+    local quest = Quests.GetTrackedQuest(player)
+    if not quest or quest.status ~= "active" then
+        return nil
+    end
+
+    return Quests.GetClearanceTargetData(player, quest)
 end
 
 function Quests.GetTrackedMarkerData(player)
@@ -838,6 +1451,17 @@ function Quests.GetTrackedObjectiveUIData(player)
             currentStep = totalSteps
             currentObjectiveLabel = "Secure the building"
         end
+
+        if zoneState.encounterSpawned == true and zoneState.areaClear ~= true and #(zoneState.targetSamples or {}) > 0 then
+            lines[#lines + 1] = {
+                id = "zone_locator",
+                label = "Zombie Locator",
+                value = string.format("%d closest zeds highlighted", #(zoneState.targetSamples or {})),
+                completed = false,
+                current = false,
+                accent = "info",
+            }
+        end
     end
 
     if not currentObjective then
@@ -943,6 +1567,7 @@ function Quests.AbandonQuest(player, questID)
             quest.abandonedAt = DO.NowMs()
             removeQuestItemByQuestID(player, quest.id)
             removeQuestDropsByQuestID(player, quest.id)
+            markBlueprintLedger(store, quest, "lastAbandonedAtWorldHours")
             if store.trackedQuestID == quest.id then
                 store.trackedQuestID = nil
             end
@@ -975,6 +1600,7 @@ function Quests.CompleteQuest(player, questID, reason)
     quest.tracked = false
     quest.completedAt = DO.NowMs()
     quest.completionReason = reason or "completed"
+    markBlueprintLedger(store, quest, "lastCompletedAtWorldHours")
 
     if store.trackedQuestID == quest.id then
         store.trackedQuestID = nil
@@ -1001,6 +1627,7 @@ function Quests.FailQuest(player, questID, reason)
     quest.tracked = false
     quest.failedAt = DO.NowMs()
     quest.failureReason = reason or "failed"
+    markBlueprintLedger(store, quest, "lastFailedAtWorldHours")
 
     removeQuestItemByQuestID(player, quest.id)
     removeQuestDropsByQuestID(player, quest.id)
@@ -1387,6 +2014,7 @@ function Quests.StartQuest(player, spec)
     syncEncounterObjectiveCounts(quest)
 
     store.quests[#store.quests + 1] = quest
+    markBlueprintLedger(store, quest, "lastStartedAtWorldHours")
 
     if not store.trackedQuestID then
         store.trackedQuestID = quest.id
@@ -1406,143 +2034,39 @@ function Quests.StartQuest(player, spec)
 end
 
 function Quests.BuildDebugKillZoneQuest(player, difficulty, timeLimitHours)
-    local destination = buildFallbackDestination(player, "Marked Kill Zone")
-    destination.r = 1.0
-    destination.g = 0.3
-    destination.b = 0.2
-    destination.radius = math.max(26, destination.radius or 26)
-
-    local spawnCount = 8
-    return {
-        name = "Kill Zone Sweep",
+    local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint("resting_kill_zone") or nil
+    return buildQuestSpecFromBlueprint(player, {
+        traderID = "debug_manager",
+        displayName = "Debug Manager",
+        currentState = "Resting",
+    }, blueprint or {}, {
         baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
         timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
-        rewardContext = buildDebugRewardContext(destination),
-        targetLocation = destination,
-        rewards = {
-            { kind = "money", amount = 150 },
-            { kind = "item", itemType = "Base.Bandage", count = 2 },
-        },
-        encounter = {
-            id = "kill_zone_encounter",
-            kind = "kill_zone",
-            count = spawnCount,
-            spawnRadius = 18,
-            clearRadius = 28,
-            spawnMode = "building",
-            requireAreaClear = true,
-            requirePlayerPresence = true,
-        },
-        objectives = {
-            {
-                id = "kill_zone",
-                type = "kill",
-                label = "Eliminate the infestation",
-                required = spawnCount,
-                radius = destination.radius,
-                encounterOnly = true,
-                requireAreaClear = true,
-            },
-        },
-    }
+    })
 end
 
 function Quests.BuildDebugHuntQuest(player, difficulty, timeLimitHours)
-    local destination = buildFallbackDestination(player, "Sample Hunt Zone")
-    destination.r = 0.95
-    destination.g = 0.65
-    destination.b = 0.1
-    destination.radius = math.max(28, destination.radius or 28)
-
-    local spawnCount = 7
-    return {
-        name = "Infected Sample Hunt",
+    local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint("resting_hunt_drop") or nil
+    return buildQuestSpecFromBlueprint(player, {
+        traderID = "debug_manager",
+        displayName = "Debug Manager",
+        currentState = "Resting",
+    }, blueprint or {}, {
         baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
         timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
-        rewardContext = buildDebugRewardContext(destination),
-        targetLocation = destination,
-        rewards = {
-            { kind = "money", amount = 220 },
-            { kind = "reputation", amount = 5 },
-            {
-                kind = "recruit",
-                count = 1,
-                template = {
-                    profession = "Scavenger",
-                    jobType = "Scavenger",
-                    name = "Recovered Scout",
-                },
-            },
-        },
-        encounter = {
-            id = "sample_hunt_encounter",
-            kind = "hunt_drop",
-            count = spawnCount,
-            spawnRadius = 18,
-            clearRadius = 30,
-            spawnMode = "building",
-            requireAreaClear = true,
-            requirePlayerPresence = true,
-        },
-        objectives = {
-            {
-                id = "kill_for_sample",
-                type = "kill",
-                label = "Purge the marked cluster",
-                required = spawnCount,
-                radius = destination.radius,
-                encounterOnly = true,
-                requireAreaClear = true,
-            },
-            {
-                id = "recover_sample",
-                type = "obtainDrop",
-                label = "Recover the sample",
-                required = 1,
-                radius = destination.radius,
-                dropItemType = "DTQuest.InfectedSampleQuest",
-                spawnAfterKills = 4,
-                encounterOnly = true,
-                requireAreaClear = true,
-                completeRemainingObjectives = true,
-                completeQuestOnComplete = true,
-            },
-        },
-    }
+    })
 end
 
 function Quests.BuildDebugCourierQuest(player, difficulty, timeLimitHours)
-    local destination = buildFallbackDestination(player, "Delivery Destination")
-    destination.r = 0.25
-    destination.g = 0.85
-    destination.b = 1.0
-    destination.radius = math.max(12, math.min(destination.radius or 12, 20))
-
-    return {
-        name = "Courier Run",
+    local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint("resting_courier_run") or nil
+    return buildQuestSpecFromBlueprint(player, {
+        traderID = "debug_manager",
+        displayName = "Debug Manager",
+        currentState = "Resting",
+    }, blueprint or {}, {
         baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
         timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
-        rewardContext = buildDebugRewardContext(destination),
-        targetLocation = destination,
-        grantItemType = "DTQuest.PackageMedicalQuest",
-        grantItemDifficulty = difficulty and normalizeDifficulty(difficulty) or 1.0,
-        rewards = {
-            { kind = "money", amount = 300 },
-            { kind = "reputation", amount = 3 },
-            { kind = "item", itemType = "Base.CannedSoup", count = 2 },
-        },
-        objectives = {
-            {
-                id = "deliver_package",
-                type = "deliverItem",
-                label = "Deliver the package",
-                required = 1,
-                questItemType = "DTQuest.PackageMedicalQuest",
-                consumeOnComplete = true,
-                radius = destination.radius,
-            },
-        },
-    }
+    })
 end
 
 function Quests.DebugStartKillZoneQuest(player, difficulty, timeLimitHours)

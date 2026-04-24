@@ -8,7 +8,11 @@ DO.Kills = DO.Kills or {}
 DO.Loot = DO.Loot or {}
 DO.MapMarkers = DO.MapMarkers or {}
 DO.WorldMarkers = DO.WorldMarkers or {}
+DO.ClearIndicators = DO.ClearIndicators or {}
 DO.Integration = DO.Integration or {}
+DO.QuestBlueprints = DO.QuestBlueprints or { Registry = {}, Order = {} }
+DO.QuestLootPools = DO.QuestLootPools or { Registry = {}, Order = {} }
+DO.QuestDialogueTrees = DO.QuestDialogueTrees or { Registry = {}, Order = {} }
 
 local function fallbackPrint(message)
     if print then
@@ -53,6 +57,56 @@ function DO.DeepCopy(value, seen)
     end
 
     return copy
+end
+
+function DO.SerializeLuaValue(value, indentLevel)
+    indentLevel = tonumber(indentLevel) or 0
+    local indent = string.rep("    ", indentLevel)
+    local childIndent = string.rep("    ", indentLevel + 1)
+    local valueType = type(value)
+
+    if valueType == "string" then
+        return string.format("%q", value)
+    end
+    if valueType == "number" or valueType == "boolean" then
+        return tostring(value)
+    end
+    if value == nil then
+        return "nil"
+    end
+    if valueType ~= "table" then
+        return string.format("%q", tostring(value))
+    end
+
+    local parts = { "{\n" }
+    local numericKeys = {}
+    local otherKeys = {}
+
+    for key in pairs(value) do
+        if type(key) == "number" then
+            numericKeys[#numericKeys + 1] = key
+        else
+            otherKeys[#otherKeys + 1] = key
+        end
+    end
+
+    table.sort(numericKeys)
+    table.sort(otherKeys, function(left, right)
+        return tostring(left) < tostring(right)
+    end)
+
+    for _, key in ipairs(numericKeys) do
+        parts[#parts + 1] = childIndent .. DO.SerializeLuaValue(value[key], indentLevel + 1) .. ",\n"
+    end
+
+    for _, key in ipairs(otherKeys) do
+        local keyText = type(key) == "string" and string.match(key, "^[%a_][%w_]*$") and key
+            or "[" .. DO.SerializeLuaValue(key, indentLevel + 1) .. "]"
+        parts[#parts + 1] = childIndent .. tostring(keyText) .. " = " .. DO.SerializeLuaValue(value[key], indentLevel + 1) .. ",\n"
+    end
+
+    parts[#parts + 1] = indent .. "}"
+    return table.concat(parts)
 end
 
 function DO.GetPlayerKey(player)
@@ -101,12 +155,23 @@ function DO.NotifyStateChanged(player)
     if DO.WorldMarkers and DO.WorldMarkers.RequestFullRefresh then
         DO.WorldMarkers.RequestFullRefresh()
     end
+
+    if DO.ClearIndicators and DO.ClearIndicators.RequestFullRefresh then
+        DO.ClearIndicators.RequestFullRefresh()
+    end
 end
 
 require "DO/Integration/DO_V2Integration"
+require "DO/Common/DO_QuestRegistry"
+require "DO/Common/DO_QuestBlueprintValidator"
+require "DO/Common/DO_QuestRegistryLoader"
 require "DO/Rewards/DO_Rewards"
 require "DO/Quests/DO_QuestItemRuntime"
 require "DO/Quests/DO_QuestRuntime"
 require "DO/Kills/DO_KillTracking"
+
+if DO.QuestRegistryLoader and DO.QuestRegistryLoader.LoadShippedContent then
+    DO.QuestRegistryLoader.LoadShippedContent()
+end
 
 DO.Log("Init", "Core", "Shared bootstrap loaded")

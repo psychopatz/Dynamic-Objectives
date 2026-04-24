@@ -1,4 +1,5 @@
 DynamicObjectives = DynamicObjectives or {}
+pcall(require, "DT/Common/UI/ConversationUI/DT_ConversationQuestOffer")
 
 DO_DebugWindow = ISCollapsableWindow:derive("DO_DebugWindow")
 DO_DebugWindow.instance = nil
@@ -96,6 +97,16 @@ function DO_DebugWindow:createChildren()
     self:addChild(self.btnCourier)
     y = y + buttonH + 10
 
+    self.btnQuestManager = ISButton:new(x, y, fullW, buttonH, "Open Quest Manager", self, self.onOpenQuestManager)
+    self.btnQuestManager:initialise()
+    self:addChild(self.btnQuestManager)
+    y = y + buttonH + 10
+
+    self.btnQuestConversation = ISButton:new(x, y, fullW, buttonH, "Preview Quest Conversation", self, self.onOpenQuestConversationPreview)
+    self.btnQuestConversation:initialise()
+    self:addChild(self.btnQuestConversation)
+    y = y + buttonH + 10
+
     self.lblTracked = ISLabel:new(x, y, 18, "Tracked: None", 1, 1, 1, 1, UIFont.Small, true)
     self.lblTracked:initialise()
     self:addChild(self.lblTracked)
@@ -189,6 +200,35 @@ function DO_DebugWindow:onStartCourierQuest()
     if player and DynamicObjectives.Quests and DynamicObjectives.Quests.DebugStartCourierQuest then
         DynamicObjectives.Quests.DebugStartCourierQuest(player, self.debugDifficulty, self.debugTimeLimitHours)
         self:refreshQuestList()
+    end
+end
+
+function DO_DebugWindow:onOpenQuestManager()
+    if DO_QuestManagerWindow and DO_QuestManagerWindow.OnOpen then
+        DO_QuestManagerWindow.OnOpen()
+    end
+end
+
+function DO_DebugWindow:onOpenQuestConversationPreview()
+    local player = getLocalPlayer()
+    if not player then
+        return
+    end
+
+    if DT_ConversationQuestOffer and DT_ConversationQuestOffer.OpenDebugConversation then
+        DT_ConversationQuestOffer.OpenDebugConversation(player, {
+            onQuestAccepted = function()
+                self:refreshQuestList()
+            end,
+            onCloseCallback = function()
+                self:refreshQuestList()
+            end,
+        })
+        return
+    end
+
+    if player.Say then
+        player:Say("Quest conversation preview unavailable.")
     end
 end
 
