@@ -1,5 +1,6 @@
 require "DO/DO_ClientNetwork"
 require "DO/Markers/DO_MapSymbolDefinitions"
+require "DO/Markers/DO_ZombieTargetResolver"
 require "DO/Markers/DO_MapMarkerSystem"
 require "DO/Markers/DO_WorldMarkerSystem"
 require "DO/Markers/DO_ZombieClearIndicatorSystem"

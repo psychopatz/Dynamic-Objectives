@@ -123,16 +123,6 @@ local function buildObjectiveLines(quest, zoneState)
             currentObjectiveLabel = "Secure the building"
         end
 
-        if zoneState.encounterSpawned == true and zoneState.areaClear ~= true and #(zoneState.targetSamples or {}) > 0 then
-            lines[#lines + 1] = {
-                id = "zone_locator",
-                label = "Zombie Locator",
-                value = string.format("%d closest zeds highlighted", #(zoneState.targetSamples or {})),
-                completed = false,
-                current = false,
-                accent = "info",
-            }
-        end
     end
 
     if not currentObjective then

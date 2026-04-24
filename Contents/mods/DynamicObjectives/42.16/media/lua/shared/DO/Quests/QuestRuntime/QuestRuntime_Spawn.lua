@@ -218,6 +218,8 @@ local function stampQuestSpawn(zombie, player, quest, encounter)
 
     local modData = zombie:getModData()
     modData.DOQuestSpawn = true
+    modData.DOQuestTarget = true
+    modData.DOQuestTargetType = "zombie"
     modData.DOQuestEncounterQuestID = quest.id
     modData.DOQuestEncounterID = encounter and encounter.id or "encounter_main"
     modData.DOQuestEncounterPlayerKey = DO.GetPlayerKey(player)

@@ -394,6 +394,17 @@ local function buildAreaClearText(zoneState)
         return nil
     end
 
+    local location = zoneState.location
+    local locationLoaded = true
+    local cell = getCell and getCell() or nil
+    if cell and location then
+        locationLoaded = cell:getGridSquare(
+            math.floor(tonumber(location.x) or 0),
+            math.floor(tonumber(location.y) or 0),
+            math.floor(tonumber(location.z) or 0)
+        ) ~= nil
+    end
+
     if zoneState.encounterSpawned ~= true then
         if zoneState.playerPresent == true then
             return "Searching the building..."
@@ -403,6 +414,10 @@ local function buildAreaClearText(zoneState)
 
     if zoneState.areaClear == true then
         return "Area secure"
+    end
+
+    if location and locationLoaded ~= true then
+        return "Encounter area unloaded; move closer to locate targets"
     end
 
     if zoneState.playerPresent ~= true then
