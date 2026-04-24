@@ -104,6 +104,7 @@ function DO.NotifyStateChanged(player)
 end
 
 require "DO/Integration/DO_V2Integration"
+require "DO/Rewards/DO_Rewards"
 require "DO/Quests/DO_QuestItemRuntime"
 require "DO/Quests/DO_QuestRuntime"
 require "DO/Kills/DO_KillTracking"

@@ -29,6 +29,12 @@ local function onClientCommand(module, command, player, args)
                 spawnedCount = spawnedCount,
             })
         end
+    elseif command == "GrantQuestRewards" then
+        if not player or not args or not DynamicObjectives.Rewards or not DynamicObjectives.Rewards.GrantQuestRewardsFromPayload then
+            return
+        end
+
+        DynamicObjectives.Rewards.GrantQuestRewardsFromPayload(player, args)
     end
 end
 

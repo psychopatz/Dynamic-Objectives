@@ -106,6 +106,51 @@ local function buildFallbackDestination(player, purpose)
     return nil
 end
 
+local function buildDebugRewardContext(location)
+    if type(location) ~= "table" or not ModData or not ModData.get then
+        return {}
+    end
+
+    local data = ModData.get("DynamicTrading_Factions")
+    if type(data) ~= "table" then
+        return {}
+    end
+
+    local bestID = nil
+    local bestFaction = nil
+    local bestDistance = nil
+    local targetTown = location.town and tostring(location.town):lower() or ""
+    for factionID, faction in pairs(data) do
+        if type(faction) == "table" then
+            local home = type(faction.homeCoords) == "table" and faction.homeCoords or nil
+            local hx = home and tonumber(home.x) or nil
+            local hy = home and tonumber(home.y) or nil
+            if hx and hy then
+                local dx = hx - (tonumber(location.x) or 0)
+                local dy = hy - (tonumber(location.y) or 0)
+                local distance = math.sqrt((dx * dx) + (dy * dy))
+                local factionTown = faction.town and tostring(faction.town):lower() or ""
+                local townBias = (targetTown ~= "" and factionTown == targetTown) and -250 or 0
+                local score = distance + townBias
+                if not bestDistance or score < bestDistance then
+                    bestDistance = score
+                    bestID = tostring(factionID)
+                    bestFaction = faction
+                end
+            end
+        end
+    end
+
+    if not bestID then
+        return {}
+    end
+
+    return {
+        factionID = bestID,
+        factionName = bestFaction and tostring(bestFaction.name or bestID) or bestID,
+    }
+end
+
 local function normalizeDifficulty(value)
     local difficulty = tonumber(value) or 1.0
     if difficulty <= 0 then
@@ -119,8 +164,16 @@ local function getConfiguredQuestDifficulty()
     return normalizeDifficulty(sandbox and sandbox.QuestDifficulty or 1.0)
 end
 
+local function getWorldAgeHours()
+    local gameTime = getGameTime and getGameTime() or nil
+    if gameTime and gameTime.getWorldAgeHours then
+        return tonumber(gameTime:getWorldAgeHours()) or 0
+    end
+    return 0
+end
+
 local function clampDifficulty(value)
-    return math.max(0.5, math.min(3.5, normalizeDifficulty(value)))
+    return math.max(0.5, math.min(100.0, normalizeDifficulty(value)))
 end
 
 local function getQuestDifficultyLabel(value)
@@ -265,6 +318,8 @@ local function normalizeObjective(index, quest, objective)
     normalized.requireAreaClear = normalized.requireAreaClear == true or (quest.encounter and quest.encounter.requireAreaClear == true)
     normalized.encounterOnly = normalized.encounterOnly ~= false and quest.encounter ~= nil
     normalized.questItemType = normalized.questItemType and tostring(normalized.questItemType) or nil
+    normalized.completeQuestOnComplete = normalized.completeQuestOnComplete == true
+    normalized.completeRemainingObjectives = normalized.completeRemainingObjectives == true or normalized.completeQuestOnComplete == true
     return normalized
 end
 
@@ -400,6 +455,47 @@ local function removeQuestItemByQuestID(player, questID)
     end
 end
 
+local function removeQuestDropsByQuestID(player, questID)
+    local items = Quests.FindItemsOnPlayer(player, function(item)
+        local modData = item:getModData()
+        return modData and modData.DOQuestDrop == true and modData.DOQuestID == questID
+    end)
+
+    for _, item in ipairs(items) do
+        Quests.RemoveInventoryItem(item)
+    end
+end
+
+local function markObjectiveCompleted(objective)
+    if not objective then
+        return false
+    end
+
+    local required = math.max(1, math.floor(tonumber(objective.required) or 1))
+    local changed = objective.completed ~= true or tonumber(objective.progress) ~= required
+    objective.progress = required
+    objective.completed = true
+    return changed
+end
+
+local function completeObjectivesAfter(quest, objectiveID)
+    if not quest or not objectiveID then
+        return false
+    end
+
+    local found = false
+    local changed = false
+    for _, objective in ipairs(quest.objectives or {}) do
+        if found then
+            changed = markObjectiveCompleted(objective) or changed
+        elseif objective.id == objectiveID then
+            found = true
+        end
+    end
+
+    return changed
+end
+
 local function countObjectiveDropItems(player, questID, objectiveID)
     local playerKey = DO.GetPlayerKey(player)
     local items = Quests.FindItemsOnPlayer(player, function(item)
@@ -495,6 +591,10 @@ local function getPendingObjective(quest)
 end
 
 local function questRequiresAreaClear(quest)
+    if quest and quest.skipAreaClear == true then
+        return false
+    end
+
     if quest and quest.encounter and quest.encounter.requireAreaClear == true then
         return true
     end
@@ -529,6 +629,19 @@ local function buildAreaClearText(zoneState)
     end
 
     return string.format("Nearby zeds: %d", math.max(0, tonumber(zoneState.nearbyZombies) or 0))
+end
+
+local function getQuestRemainingHours(quest)
+    if not quest or tonumber(quest.timeLimitHours) == nil or tonumber(quest.timeLimitHours) <= 0 then
+        return nil
+    end
+
+    local expiresAt = tonumber(quest.expiresAtWorldHours)
+    if not expiresAt then
+        return nil
+    end
+
+    return math.max(0, expiresAt - getWorldAgeHours())
 end
 
 function Quests.GetStore(player, create)
@@ -612,6 +725,15 @@ function Quests.BuildSummaryText(quest, player)
     local zoneState = Quests.GetEncounterStatus(player, quest)
     if zoneState then
         parts[#parts + 1] = buildAreaClearText(zoneState)
+    end
+
+    local remainingHours = getQuestRemainingHours(quest)
+    if remainingHours ~= nil then
+        parts[#parts + 1] = string.format("Time left %.1fh", remainingHours)
+    end
+
+    if quest.rewardPreview and quest.rewardPreview ~= "" then
+        parts[#parts + 1] = "Rewards " .. tostring(quest.rewardPreview)
     end
 
     local suffix = quest.tracked and " [Tracked]" or ""
@@ -753,6 +875,9 @@ function Quests.GetTrackedObjectiveUIData(player)
         targetLabel = quest.targetLocation and tostring(quest.targetLocation.label or "") or "",
         targetLocation = quest.targetLocation,
         difficulty = normalizeDifficulty(quest.difficulty),
+        rewardPreview = quest.rewardPreview and tostring(quest.rewardPreview) or nil,
+        timeLimitHours = tonumber(quest.timeLimitHours) or 0,
+        timeRemainingHours = getQuestRemainingHours(quest),
         currentStep = currentStep,
         totalSteps = math.max(1, totalSteps),
         currentObjectiveLabel = currentObjectiveLabel
@@ -817,6 +942,7 @@ function Quests.AbandonQuest(player, questID)
             quest.tracked = false
             quest.abandonedAt = DO.NowMs()
             removeQuestItemByQuestID(player, quest.id)
+            removeQuestDropsByQuestID(player, quest.id)
             if store.trackedQuestID == quest.id then
                 store.trackedQuestID = nil
             end
@@ -841,6 +967,10 @@ function Quests.CompleteQuest(player, questID, reason)
         return false
     end
 
+    if DO.Rewards and DO.Rewards.GrantQuestRewards then
+        DO.Rewards.GrantQuestRewards(player, quest)
+    end
+
     quest.status = "completed"
     quest.tracked = false
     quest.completedAt = DO.NowMs()
@@ -852,6 +982,35 @@ function Quests.CompleteQuest(player, questID, reason)
 
     resolveTrackedQuest(player, store)
     say(player, "Objective complete: " .. tostring(quest.name))
+    onQuestStateChanged(player)
+    return true
+end
+
+function Quests.FailQuest(player, questID, reason)
+    local store = getStore(player, true)
+    if not store then
+        return false
+    end
+
+    local quest = findQuest(store, questID)
+    if not quest or quest.status ~= "active" then
+        return false
+    end
+
+    quest.status = "failed"
+    quest.tracked = false
+    quest.failedAt = DO.NowMs()
+    quest.failureReason = reason or "failed"
+
+    removeQuestItemByQuestID(player, quest.id)
+    removeQuestDropsByQuestID(player, quest.id)
+
+    if store.trackedQuestID == quest.id then
+        store.trackedQuestID = nil
+    end
+
+    resolveTrackedQuest(player, store)
+    say(player, "Objective failed: " .. tostring(quest.name))
     onQuestStateChanged(player)
     return true
 end
@@ -1184,11 +1343,18 @@ function Quests.StartQuest(player, spec)
     quest.name = tostring(quest.name or quest.id)
     quest.status = "active"
     quest.createdAt = DO.NowMs()
+    quest.startedAtWorldHours = getWorldAgeHours()
     quest.playerKey = DO.GetPlayerKey(player)
     quest.targetLocation = normalizeLocation(quest.targetLocation or buildFallbackDestination(player, quest.name))
     quest.baseDifficulty = normalizeDifficulty(quest.baseDifficulty or quest.questDifficulty or quest.difficulty or getConfiguredQuestDifficulty())
     quest.difficulty, quest.difficultyFactors = resolveQuestDifficulty(player, quest, quest.targetLocation)
     quest.difficultyLabel = getQuestDifficultyLabel(quest.difficulty)
+    quest.timeLimitHours = math.max(0, tonumber(quest.timeLimitHours or quest.timerHours or quest.expireHours) or 0)
+    if quest.timeLimitHours > 0 then
+        quest.expiresAtWorldHours = quest.startedAtWorldHours + quest.timeLimitHours
+    else
+        quest.expiresAtWorldHours = nil
+    end
     quest.encounter = normalizeEncounter(quest, quest.encounter)
     quest.objectives = type(quest.objectives) == "table" and quest.objectives or {}
 
@@ -1203,6 +1369,19 @@ function Quests.StartQuest(player, spec)
             label = "Kill Zombies",
             required = 5,
         })
+    end
+
+    quest.rewardContext = type(quest.rewardContext) == "table" and DO.DeepCopy(quest.rewardContext) or {}
+    if DO.Rewards and DO.Rewards.NormalizeRewards then
+        DO.Rewards.NormalizeRewards(quest, quest.rewards)
+    else
+        quest.rewards = {}
+        quest.rewardPreview = nil
+        quest.rewardState = {
+            granted = false,
+            grantedAt = nil,
+            entries = {},
+        }
     end
 
     syncEncounterObjectiveCounts(quest)
@@ -1226,7 +1405,7 @@ function Quests.StartQuest(player, spec)
     return quest
 end
 
-function Quests.BuildDebugKillZoneQuest(player, difficulty)
+function Quests.BuildDebugKillZoneQuest(player, difficulty, timeLimitHours)
     local destination = buildFallbackDestination(player, "Marked Kill Zone")
     destination.r = 1.0
     destination.g = 0.3
@@ -1237,7 +1416,13 @@ function Quests.BuildDebugKillZoneQuest(player, difficulty)
     return {
         name = "Kill Zone Sweep",
         baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
+        timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
+        rewardContext = buildDebugRewardContext(destination),
         targetLocation = destination,
+        rewards = {
+            { kind = "money", amount = 150 },
+            { kind = "item", itemType = "Base.Bandage", count = 2 },
+        },
         encounter = {
             id = "kill_zone_encounter",
             kind = "kill_zone",
@@ -1262,7 +1447,7 @@ function Quests.BuildDebugKillZoneQuest(player, difficulty)
     }
 end
 
-function Quests.BuildDebugHuntQuest(player, difficulty)
+function Quests.BuildDebugHuntQuest(player, difficulty, timeLimitHours)
     local destination = buildFallbackDestination(player, "Sample Hunt Zone")
     destination.r = 0.95
     destination.g = 0.65
@@ -1273,7 +1458,22 @@ function Quests.BuildDebugHuntQuest(player, difficulty)
     return {
         name = "Infected Sample Hunt",
         baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
+        timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
+        rewardContext = buildDebugRewardContext(destination),
         targetLocation = destination,
+        rewards = {
+            { kind = "money", amount = 220 },
+            { kind = "reputation", amount = 5 },
+            {
+                kind = "recruit",
+                count = 1,
+                template = {
+                    profession = "Scavenger",
+                    jobType = "Scavenger",
+                    name = "Recovered Scout",
+                },
+            },
+        },
         encounter = {
             id = "sample_hunt_encounter",
             kind = "hunt_drop",
@@ -1304,12 +1504,14 @@ function Quests.BuildDebugHuntQuest(player, difficulty)
                 spawnAfterKills = 4,
                 encounterOnly = true,
                 requireAreaClear = true,
+                completeRemainingObjectives = true,
+                completeQuestOnComplete = true,
             },
         },
     }
 end
 
-function Quests.BuildDebugCourierQuest(player)
+function Quests.BuildDebugCourierQuest(player, difficulty, timeLimitHours)
     local destination = buildFallbackDestination(player, "Delivery Destination")
     destination.r = 0.25
     destination.g = 0.85
@@ -1318,9 +1520,17 @@ function Quests.BuildDebugCourierQuest(player)
 
     return {
         name = "Courier Run",
+        baseDifficulty = difficulty and normalizeDifficulty(difficulty) or nil,
+        timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
+        rewardContext = buildDebugRewardContext(destination),
         targetLocation = destination,
         grantItemType = "DTQuest.PackageMedicalQuest",
-        grantItemDifficulty = 1.0,
+        grantItemDifficulty = difficulty and normalizeDifficulty(difficulty) or 1.0,
+        rewards = {
+            { kind = "money", amount = 300 },
+            { kind = "reputation", amount = 3 },
+            { kind = "item", itemType = "Base.CannedSoup", count = 2 },
+        },
         objectives = {
             {
                 id = "deliver_package",
@@ -1335,16 +1545,16 @@ function Quests.BuildDebugCourierQuest(player)
     }
 end
 
-function Quests.DebugStartKillZoneQuest(player)
-    return Quests.StartQuest(player, Quests.BuildDebugKillZoneQuest(player))
+function Quests.DebugStartKillZoneQuest(player, difficulty, timeLimitHours)
+    return Quests.StartQuest(player, Quests.BuildDebugKillZoneQuest(player, difficulty, timeLimitHours))
 end
 
-function Quests.DebugStartHuntQuest(player)
-    return Quests.StartQuest(player, Quests.BuildDebugHuntQuest(player))
+function Quests.DebugStartHuntQuest(player, difficulty, timeLimitHours)
+    return Quests.StartQuest(player, Quests.BuildDebugHuntQuest(player, difficulty, timeLimitHours))
 end
 
-function Quests.DebugStartCourierQuest(player)
-    return Quests.StartQuest(player, Quests.BuildDebugCourierQuest(player))
+function Quests.DebugStartCourierQuest(player, difficulty, timeLimitHours)
+    return Quests.StartQuest(player, Quests.BuildDebugCourierQuest(player, difficulty, timeLimitHours))
 end
 
 function Quests.DumpState(player)
@@ -1480,6 +1690,12 @@ function Quests.OnPlayerQuestUpdate(player)
 
     for _, quest in ipairs(store.quests or {}) do
         if quest.status == "active" then
+            local remainingHours = getQuestRemainingHours(quest)
+            if remainingHours ~= nil and remainingHours <= 0 then
+                Quests.FailQuest(player, quest.id, "time_expired")
+                return
+            end
+
             for _, objective in ipairs(quest.objectives or {}) do
                 if objective.completed ~= true then
                     if quest.encounter and quest.encounter.spawned ~= true and isEncounterActivationReady(player, quest) then
@@ -1491,8 +1707,15 @@ function Quests.OnPlayerQuestUpdate(player)
                     if objective.type == "obtainDrop" then
                         local count = countObjectiveDropItems(player, quest.id, objective.id)
                         if count > 0 then
-                            objective.progress = objective.required
-                            objective.completed = true
+                            changed = markObjectiveCompleted(objective) or changed
+                            if objective.completeRemainingObjectives == true then
+                                changed = completeObjectivesAfter(quest, objective.id) or changed
+                            end
+                            if objective.completeQuestOnComplete == true then
+                                quest.skipAreaClear = true
+                                Quests.CompleteQuest(player, quest.id, "objective_completed")
+                                return
+                            end
                             changed = true
                         end
                     elseif objective.type == "deliverItem" then

@@ -47,6 +47,24 @@ local function drawStrike(panel, x, y, width, color)
     panel:drawRect(x, y, math.max(0, width), 1, 0.92, color.r, color.g, color.b)
 end
 
+local function formatRemainingHours(hours)
+    local value = tonumber(hours)
+    if not value then
+        return nil
+    end
+
+    local totalMinutes = math.max(0, math.floor((value * 60) + 0.5))
+    local wholeHours = math.floor(totalMinutes / 60)
+    local minutes = totalMinutes % 60
+    if wholeHours <= 0 then
+        return string.format("%dm remaining", minutes)
+    end
+    if minutes <= 0 then
+        return string.format("%dh remaining", wholeHours)
+    end
+    return string.format("%dh %dm remaining", wholeHours, minutes)
+end
+
 function DO_ObjectiveHUD:initialise()
     ISPanel.initialise(self)
 end
@@ -69,7 +87,16 @@ function DO_ObjectiveHUD:syncLayout()
     local screenH = core:getScreenHeight()
     local scale = clamp(screenW / 1920, 0.85, 1.2)
     local lineCount = self.data and #(self.data.lines or {}) or 0
-    local extraRows = self.data and self.data.difficultyLabel and self.data.difficultyLabel ~= "" and 1 or 0
+    local extraRows = 0
+    if self.data and self.data.difficultyLabel and self.data.difficultyLabel ~= "" then
+        extraRows = extraRows + 1
+    end
+    if self.data and tonumber(self.data.timeLimitHours) and tonumber(self.data.timeLimitHours) > 0 then
+        extraRows = extraRows + 1
+    end
+    if self.data and self.data.rewardPreview and self.data.rewardPreview ~= "" then
+        extraRows = extraRows + 1
+    end
     local collapsedSize = clamp(math.floor(42 * scale), 38, 52)
     local expandedWidth = clamp(math.floor(screenW * 0.23), 300, 430)
     local expandedHeight = math.max(
@@ -211,6 +238,39 @@ function DO_ObjectiveHUD:renderExpanded()
             0.92,
             0.84,
             0.62,
+            0.94,
+            UIFont.Small
+        )
+        y = y + 18
+    end
+
+    if tonumber(self.data.timeLimitHours) and tonumber(self.data.timeLimitHours) > 0 then
+        local remainingText = formatRemainingHours(self.data.timeRemainingHours) or "Expired"
+        local timeColor = { r = 0.72, g = 0.86, b = 0.98 }
+        if tonumber(self.data.timeRemainingHours) and tonumber(self.data.timeRemainingHours) <= 1 then
+            timeColor = { r = 0.98, g = 0.56, b = 0.42 }
+        end
+        self:drawText(
+            "Expires: " .. remainingText,
+            x,
+            y,
+            timeColor.r,
+            timeColor.g,
+            timeColor.b,
+            0.94,
+            UIFont.Small
+        )
+        y = y + 18
+    end
+
+    if self.data.rewardPreview and self.data.rewardPreview ~= "" then
+        self:drawText(
+            "Rewards: " .. tostring(self.data.rewardPreview),
+            x,
+            y,
+            0.72,
+            0.9,
+            0.72,
             0.94,
             UIFont.Small
         )
