@@ -1,0 +1,11 @@
+VERSION = 1,
+
+option DynamicObjectives.QuestDifficulty
+{
+    type = double,
+    default = 1.0,
+    min = 0.5,
+    max = 3.0,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestDifficulty,
+}

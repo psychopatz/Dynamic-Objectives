@@ -1,0 +1,5 @@
+{
+    "Sandbox_DynamicObjectives": "Dynamic Objectives",
+    "Sandbox_DynamicObjectives.QuestDifficulty": "Quest Difficulty",
+    "Sandbox_DynamicObjectives.QuestDifficulty_tooltip": "Global multiplier for encounter-based objective spawns. Higher values spawn more quest zombies and raise the required kill count."
+}
