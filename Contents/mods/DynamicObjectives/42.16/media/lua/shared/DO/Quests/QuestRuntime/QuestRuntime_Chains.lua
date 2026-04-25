@@ -6,6 +6,10 @@ local Quests = DO.Quests
 Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
+local function chainLog(message)
+    Runtime.questLog("Quest", "Chain", message)
+end
+
 local function getChain(chainOrId)
     if type(chainOrId) == "table" then
         return chainOrId
@@ -264,6 +268,11 @@ local function buildPendingChainOffer(store, player, traderContext)
                 })
                 local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint(pending.blueprintId) or nil
                 if spec and blueprint then
+                    chainLog(
+                        "Resolved pending follow-up chain=" .. tostring(chain.id or "")
+                            .. " stage=" .. tostring(stage and stage.id or pending.stageId)
+                            .. " traderId=" .. tostring(sourceTrader.traderID or sourceTrader.id or "")
+                    )
                     return {
                         blueprintId = tostring(blueprint.id or pending.blueprintId),
                         blueprint = blueprint,
@@ -338,6 +347,10 @@ local function completeQuestChain(player, store, quest)
         progress.nextStageId = nil
         progress.pendingOffer = nil
         progress.completed = true
+        chainLog(
+            "Completed final stage chain=" .. tostring(chain.id or quest.chainId)
+                .. " stage=" .. tostring(currentStage.id or quest.chainStageId)
+        )
         return nil
     end
 
@@ -352,8 +365,18 @@ local function completeQuestChain(player, store, quest)
             bypassCooldown = true,
         })
         if autoSpec then
+            chainLog(
+                "Auto-starting follow-up chain=" .. tostring(chain.id or quest.chainId)
+                    .. " fromStage=" .. tostring(currentStage.id or quest.chainStageId)
+                    .. " toStage=" .. tostring(nextStage.id or "")
+            )
             return Quests.StartQuest(player, autoSpec)
         end
+        chainLog(
+            "Auto-start follow-up unavailable chain=" .. tostring(chain.id or quest.chainId)
+                .. " fromStage=" .. tostring(currentStage.id or quest.chainStageId)
+                .. " toStage=" .. tostring(nextStage.id or "")
+        )
     end
 
     progress.pendingOffer = {
@@ -363,6 +386,12 @@ local function completeQuestChain(player, store, quest)
         sourceTrader = type(progress.sourceTrader) == "table" and DO.DeepCopy(progress.sourceTrader) or {},
         unlockedAt = DO.NowMs and DO.NowMs() or nil,
     }
+
+    chainLog(
+        "Queued follow-up offer chain=" .. tostring(chain.id or quest.chainId)
+            .. " fromStage=" .. tostring(currentStage.id or quest.chainStageId)
+            .. " toStage=" .. tostring(nextStage.id or "")
+    )
 
     return nil
 end

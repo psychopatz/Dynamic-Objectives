@@ -3,5 +3,13 @@
     "Sandbox_DynamicObjectives.QuestDifficulty": "Quest Difficulty",
     "Sandbox_DynamicObjectives.QuestDifficulty_tooltip": "Global multiplier for encounter-based objective spawns. Higher values spawn more quest zombies and raise the required kill count.",
     "Sandbox_DynamicObjectives.QuestExpirationMultiplier": "Quest Expiration Multiplier",
-    "Sandbox_DynamicObjectives.QuestExpirationMultiplier_tooltip": "Scales the base expiration for generated Dynamic Objectives quests. Set to 0 to disable quest expiration."
+    "Sandbox_DynamicObjectives.QuestExpirationMultiplier_tooltip": "Scales the base expiration for generated Dynamic Objectives quests. Set to 0 to disable quest expiration.",
+    "Sandbox_DynamicObjectives.RestingContractChancePercent": "Resting Contract Extra Chance (%)",
+    "Sandbox_DynamicObjectives.RestingContractChancePercent_tooltip": "After the minimum resting quest family floor is satisfied, each remaining resting contract family gets this percent chance to appear as another available job.",
+    "Sandbox_DynamicObjectives.MinimumRestingFamiliesAvailable": "Minimum Resting Families Available",
+    "Sandbox_DynamicObjectives.MinimumRestingFamiliesAvailable_tooltip": "Guarantees up to this many resting quest families are available when eligible traders exist. Missing families are filled before optional extras are rolled.",
+    "Sandbox_DynamicObjectives.EscortIncidentChancePercent": "Escort Extra Chance (%)",
+    "Sandbox_DynamicObjectives.EscortIncidentChancePercent_tooltip": "After the minimum escort incident floor is satisfied, this percent chance adds one extra pending escort incident when eligible traders exist.",
+    "Sandbox_DynamicObjectives.MinimumEscortIncidents": "Minimum Escort Incidents",
+    "Sandbox_DynamicObjectives.MinimumEscortIncidents_tooltip": "Guarantees at least this many pending escort incidents when eligible traders and rescue sites exist. If the floor cannot be met, debug logs explain why."
 }

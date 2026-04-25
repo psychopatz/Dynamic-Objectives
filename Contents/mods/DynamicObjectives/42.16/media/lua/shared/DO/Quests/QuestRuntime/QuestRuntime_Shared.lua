@@ -7,7 +7,7 @@ Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
 Quests.MODDATA_KEY = Quests.MODDATA_KEY or "DynamicObjectives"
-Quests.STATE_VERSION = Quests.STATE_VERSION or 5
+Quests.STATE_VERSION = Quests.STATE_VERSION or 6
 
 Runtime.questUpdateTick = Runtime.questUpdateTick or 0
 
@@ -96,6 +96,7 @@ local function getStore(player, create)
             proceduralOfferCache = {},
             proceduralOfferHistory = {},
             chainProgress = {},
+            ambientOfferState = {},
         }
         modData[Quests.MODDATA_KEY] = store
     end
@@ -111,6 +112,7 @@ local function getStore(player, create)
         store.proceduralOfferCache = type(store.proceduralOfferCache) == "table" and store.proceduralOfferCache or {}
         store.proceduralOfferHistory = type(store.proceduralOfferHistory) == "table" and store.proceduralOfferHistory or {}
         store.chainProgress = type(store.chainProgress) == "table" and store.chainProgress or {}
+        store.ambientOfferState = type(store.ambientOfferState) == "table" and store.ambientOfferState or {}
     end
 
     return store
@@ -229,6 +231,50 @@ end
 local function getConfiguredQuestExpirationMultiplier()
     local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
     return normalizeExpirationMultiplier(sandbox and sandbox.QuestExpirationMultiplier or 1.0)
+end
+
+local function normalizeChancePercent(value)
+    local chance = tonumber(value)
+    if chance == nil then
+        return 0
+    end
+    return math.max(0, math.min(100, chance))
+end
+
+local function normalizeCountSetting(value, maxValue)
+    local cap = math.max(0, math.floor(tonumber(maxValue) or 0))
+    local count = math.floor(tonumber(value) or 0)
+    return math.max(0, math.min(cap, count))
+end
+
+local function getConfiguredRestingContractChancePercent()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return normalizeChancePercent(sandbox and sandbox.RestingContractChancePercent or 70)
+end
+
+local function getConfiguredMinimumRestingFamiliesAvailable()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return normalizeCountSetting(sandbox and sandbox.MinimumRestingFamiliesAvailable or 3, 3)
+end
+
+local function getConfiguredEscortIncidentChancePercent()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return normalizeChancePercent(sandbox and sandbox.EscortIncidentChancePercent or 60)
+end
+
+local function getConfiguredMinimumEscortIncidents()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return normalizeCountSetting(sandbox and sandbox.MinimumEscortIncidents or 1, 3)
+end
+
+local function rollChancePercent(chance)
+    local pct = normalizeChancePercent(chance)
+    if pct <= 0 then
+        return false, 0
+    end
+
+    local roll = ZombRand(100)
+    return roll < pct, roll
 end
 
 local function scaleQuestTimeLimit(baseHours, alreadyScaled)
@@ -410,6 +456,13 @@ Runtime.normalizeDifficulty = normalizeDifficulty
 Runtime.getConfiguredQuestDifficulty = getConfiguredQuestDifficulty
 Runtime.normalizeExpirationMultiplier = normalizeExpirationMultiplier
 Runtime.getConfiguredQuestExpirationMultiplier = getConfiguredQuestExpirationMultiplier
+Runtime.normalizeChancePercent = normalizeChancePercent
+Runtime.normalizeCountSetting = normalizeCountSetting
+Runtime.getConfiguredRestingContractChancePercent = getConfiguredRestingContractChancePercent
+Runtime.getConfiguredMinimumRestingFamiliesAvailable = getConfiguredMinimumRestingFamiliesAvailable
+Runtime.getConfiguredEscortIncidentChancePercent = getConfiguredEscortIncidentChancePercent
+Runtime.getConfiguredMinimumEscortIncidents = getConfiguredMinimumEscortIncidents
+Runtime.rollChancePercent = rollChancePercent
 Runtime.scaleQuestTimeLimit = scaleQuestTimeLimit
 Runtime.getWorldAgeHours = getWorldAgeHours
 Runtime.isAuthoritativeContext = isAuthoritativeContext

@@ -19,3 +19,43 @@ option DynamicObjectives.QuestExpirationMultiplier
     page = DynamicObjectives,
     translation = DynamicObjectives.QuestExpirationMultiplier,
 }
+
+option DynamicObjectives.RestingContractChancePercent
+{
+    type = integer,
+    default = 70,
+    min = 0,
+    max = 100,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.RestingContractChancePercent,
+}
+
+option DynamicObjectives.MinimumRestingFamiliesAvailable
+{
+    type = integer,
+    default = 3,
+    min = 0,
+    max = 3,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.MinimumRestingFamiliesAvailable,
+}
+
+option DynamicObjectives.EscortIncidentChancePercent
+{
+    type = integer,
+    default = 60,
+    min = 0,
+    max = 100,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.EscortIncidentChancePercent,
+}
+
+option DynamicObjectives.MinimumEscortIncidents
+{
+    type = integer,
+    default = 1,
+    min = 0,
+    max = 3,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.MinimumEscortIncidents,
+}

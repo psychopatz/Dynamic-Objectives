@@ -137,12 +137,14 @@ local function ensurePlayerHookStore(player, create)
     if not hookStore and create then
         hookStore = {
             incidents = {},
+            recentTraderUsage = {},
         }
         store.hookState[HOOK_ID] = hookStore
     end
 
     if hookStore then
         hookStore.incidents = type(hookStore.incidents) == "table" and hookStore.incidents or {}
+        hookStore.recentTraderUsage = type(hookStore.recentTraderUsage) == "table" and hookStore.recentTraderUsage or {}
     end
 
     return store, hookStore
@@ -151,6 +153,21 @@ end
 local function getPlayerIncidentMap(player, create)
     local _, hookStore = ensurePlayerHookStore(player, create)
     return hookStore and hookStore.incidents or nil
+end
+
+local function getRecentTraderUsage(player, traderId)
+    local _, hookStore = ensurePlayerHookStore(player, false)
+    local usage = hookStore and hookStore.recentTraderUsage or nil
+    return usage and traderId and tonumber(usage[tostring(traderId)]) or nil
+end
+
+local function markRecentTraderUsage(player, traderId)
+    local _, hookStore = ensurePlayerHookStore(player, true)
+    if not hookStore or not traderId then
+        return
+    end
+
+    hookStore.recentTraderUsage[tostring(traderId)] = DO.NowMs and DO.NowMs() or 0
 end
 
 local function getSoul(uuid)
@@ -359,7 +376,6 @@ local function mirrorIncidentToPlayer(player, incident)
         return nil
     end
 
-    clearPendingMirrorsExcept(player, incident.incidentId)
     incidentMap[tostring(incident.incidentId)] = copyIncidentForPlayer(incident)
     return incidentMap[tostring(incident.incidentId)]
 end
@@ -842,37 +858,90 @@ local function cleanupWorldIncidents()
     end
 end
 
+local function buildEscortRefreshTarget()
+    local minimum = Runtime.getConfiguredMinimumEscortIncidents and Runtime.getConfiguredMinimumEscortIncidents() or 0
+    local chance = Runtime.getConfiguredEscortIncidentChancePercent and Runtime.getConfiguredEscortIncidentChancePercent() or 0
+    local bonus = 0
+    local passed = false
+    local roll = nil
+
+    if minimum < 3 then
+        passed, roll = Runtime.rollChancePercent(chance)
+        if passed then
+            bonus = 1
+        end
+    end
+
+    return math.min(3, minimum + bonus), minimum, chance, passed, roll
+end
+
 local function findEligibleTraders(worldState, player)
     local roster = ModData and ModData.get and ModData.get("DynamicTrading_Roster") or nil
     local souls = roster and roster.Souls or nil
     if not souls then
-        return {}
+        return {}, {
+            missingRoster = true,
+            total = 0,
+        }
     end
 
     local candidates = {}
+    local summary = {
+        total = 0,
+        dead = 0,
+        notTrading = 0,
+        noHome = 0,
+        outOfRange = 0,
+        reserved = 0,
+        hooked = 0,
+        eligible = 0,
+    }
+
     for uuid, soul in pairs(souls) do
+        summary.total = summary.total + 1
         local homeCoords = buildCoords(soul and soul.homeCoords, "Trader Base", HOME_RADIUS)
         local homeMetrics = buildEscortDistanceMetrics(player, homeCoords, homeCoords)
-        if isAliveSoul(soul)
-            and tostring(soul.status or "") == "Trading"
-            and tostring(soul.state or "") ~= "Departure"
-            and homeCoords ~= nil
-            and homeMetrics ~= nil
-            and homeMetrics.homeDistance <= MAX_PLAYER_DISTANCE
-            and not worldState.byTraderId[tostring(uuid)]
-            and tostring(soul.doObjectiveHookId or "") == ""
-        then
+        if not isAliveSoul(soul) then
+            summary.dead = summary.dead + 1
+        elseif tostring(soul.status or "") ~= "Trading" or tostring(soul.state or "") == "Departure" then
+            summary.notTrading = summary.notTrading + 1
+        elseif homeCoords == nil or homeMetrics == nil then
+            summary.noHome = summary.noHome + 1
+        elseif homeMetrics.homeDistance > MAX_PLAYER_DISTANCE then
+            summary.outOfRange = summary.outOfRange + 1
+        elseif worldState.byTraderId[tostring(uuid)] then
+            summary.reserved = summary.reserved + 1
+        elseif tostring(soul.doObjectiveHookId or "") ~= "" then
+            summary.hooked = summary.hooked + 1
+        else
             candidates[#candidates + 1] = {
                 traderId = tostring(uuid),
                 soul = soul,
+                homeDistance = tonumber(homeMetrics.homeDistance) or math.huge,
+                recentUsedAt = getRecentTraderUsage(player, uuid) or 0,
             }
+            summary.eligible = summary.eligible + 1
         end
     end
 
-    return candidates
+    table.sort(candidates, function(left, right)
+        local leftRecent = tonumber(left and left.recentUsedAt) or 0
+        local rightRecent = tonumber(right and right.recentUsedAt) or 0
+        if leftRecent == rightRecent then
+            local leftDistance = tonumber(left and left.homeDistance) or math.huge
+            local rightDistance = tonumber(right and right.homeDistance) or math.huge
+            if leftDistance == rightDistance then
+                return tostring(left and left.traderId or "") < tostring(right and right.traderId or "")
+            end
+            return leftDistance < rightDistance
+        end
+        return leftRecent < rightRecent
+    end)
+
+    return candidates, summary
 end
 
-local function createIncidentForPlayer(player)
+local function createIncidentForPlayer(player, excludedTraderIds)
     if not isAuthoritative() then
         return nil
     end
@@ -882,72 +951,97 @@ local function createIncidentForPlayer(player)
         return nil
     end
 
-    local candidates = findEligibleTraders(worldState, player)
+    local candidates, summary = findEligibleTraders(worldState, player)
     if not candidates or #candidates == 0 then
+        hookLog(
+            "Create",
+            "No eligible escort trader found total=" .. tostring(summary and summary.total or 0)
+                .. " dead=" .. tostring(summary and summary.dead or 0)
+                .. " notTrading=" .. tostring(summary and summary.notTrading or 0)
+                .. " noHome=" .. tostring(summary and summary.noHome or 0)
+                .. " outOfRange=" .. tostring(summary and summary.outOfRange or 0)
+                .. " reserved=" .. tostring(summary and summary.reserved or 0)
+                .. " hooked=" .. tostring(summary and summary.hooked or 0)
+        )
         return nil
     end
 
-    while #candidates > 0 do
-        local index = ZombRand(#candidates) + 1
-        local candidate = table.remove(candidates, index)
+    for _, candidate in ipairs(candidates) do
         local soul = candidate and candidate.soul or nil
+        if excludedTraderIds and excludedTraderIds[tostring(candidate.traderId)] == true then
+            hookLog("Create", "Skipping trader " .. tostring(candidate.traderId) .. ": already selected for this refresh")
+        else
         local rescueSite = pickRescueSiteForTrader(player, soul)
         local homeCoords = buildCoords(soul and soul.homeCoords, tostring(soul and soul.name or "Trader") .. "'s Base", HOME_RADIUS)
         local metrics = buildEscortDistanceMetrics(player, rescueSite, homeCoords)
-        if rescueSite and homeCoords and metrics and metrics.withinPlayerRange == true then
-            local cashReward = computeEscortCashReward(metrics.routeDistance)
+            if not rescueSite then
+                hookLog("Create", "Skipping trader " .. tostring(candidate.traderId) .. ": no valid rescue site")
+            elseif not homeCoords then
+                hookLog("Create", "Skipping trader " .. tostring(candidate.traderId) .. ": missing home coordinates")
+            elseif not metrics or metrics.withinPlayerRange ~= true then
+                hookLog(
+                    "Create",
+                    "Skipping trader " .. tostring(candidate.traderId)
+                        .. ": route out of range rescueDistance=" .. tostring(metrics and math.floor((metrics.rescueDistance or 0) + 0.5) or "nil")
+                        .. " homeDistance=" .. tostring(metrics and math.floor((metrics.homeDistance or 0) + 0.5) or "nil")
+                )
+            else
+                local cashReward = computeEscortCashReward(metrics.routeDistance)
 
-            local incident = {
-                incidentId = nextIncidentID(player, candidate.traderId),
-                hookId = HOOK_ID,
-                traderId = candidate.traderId,
-                traderName = tostring(soul.name or "Trader"),
-                archetype = soul.archetype or soul.archetypeID or soul.jobType or nil,
-                factionId = soul.factionID and tostring(soul.factionID) or nil,
-                factionName = getFactionName(soul.factionID),
-                homeCoords = homeCoords,
-                rescueSite = rescueSite,
-                status = "pending",
-                ownerPlayerKey = nil,
-                ownerUsername = nil,
-                questId = nil,
-                createdAt = DO.NowMs(),
-                expiresAt = DO.NowMs() + INCIDENT_TTL_MS,
-                exteriorSpawned = false,
-                rescueDistance = math.floor(metrics.rescueDistance + 0.5),
-                homeDistance = math.floor(metrics.homeDistance + 0.5),
-                routeDistance = math.floor(metrics.routeDistance + 0.5),
-                cashReward = cashReward,
-            }
+                local incident = {
+                    incidentId = nextIncidentID(player, candidate.traderId),
+                    hookId = HOOK_ID,
+                    traderId = candidate.traderId,
+                    traderName = tostring(soul.name or "Trader"),
+                    archetype = soul.archetype or soul.archetypeID or soul.jobType or nil,
+                    factionId = soul.factionID and tostring(soul.factionID) or nil,
+                    factionName = getFactionName(soul.factionID),
+                    homeCoords = homeCoords,
+                    rescueSite = rescueSite,
+                    status = "pending",
+                    ownerPlayerKey = nil,
+                    ownerUsername = nil,
+                    questId = nil,
+                    createdAt = DO.NowMs(),
+                    expiresAt = DO.NowMs() + INCIDENT_TTL_MS,
+                    exteriorSpawned = false,
+                    rescueDistance = math.floor(metrics.rescueDistance + 0.5),
+                    homeDistance = math.floor(metrics.homeDistance + 0.5),
+                    routeDistance = math.floor(metrics.routeDistance + 0.5),
+                    cashReward = cashReward,
+                }
 
-            worldState.incidents[incident.incidentId] = incident
-            worldState.byTraderId[candidate.traderId] = incident.incidentId
+                worldState.incidents[incident.incidentId] = incident
+                worldState.byTraderId[candidate.traderId] = incident.incidentId
 
-            applyDistressState(incident)
-            transmitWorldState()
-            hookLog(
-                "Create",
-                "Created escort incident for trader " .. tostring(incident.traderName)
-                    .. " traderId=" .. tostring(incident.traderId)
-                    .. " rescueDistance=" .. tostring(incident.rescueDistance)
-                    .. " homeDistance=" .. tostring(incident.homeDistance)
-                    .. " reward=" .. tostring(incident.cashReward)
-            )
-            return incident
+                applyDistressState(incident)
+                markRecentTraderUsage(player, candidate.traderId)
+                transmitWorldState()
+                hookLog(
+                    "Create",
+                    "Created escort incident for trader " .. tostring(incident.traderName)
+                        .. " traderId=" .. tostring(incident.traderId)
+                        .. " rescueDistance=" .. tostring(incident.rescueDistance)
+                        .. " homeDistance=" .. tostring(incident.homeDistance)
+                        .. " reward=" .. tostring(incident.cashReward)
+                        .. " recentUsedAt=" .. tostring(candidate.recentUsedAt or 0)
+                )
+                return incident
+            end
         end
     end
 
+    hookLog("Create", "Escort incident refresh could not find a valid rescue site from " .. tostring(#candidates) .. " eligible traders")
     return nil
 end
 
-local function findBestPendingIncidentForPlayer(player)
+local function collectPendingIncidentsForPlayer(player)
     local worldState = getWorldState(false)
     if not worldState then
-        return nil
+        return {}
     end
 
-    local bestIncident = nil
-    local bestScore = nil
+    local results = {}
     local px = player and player:getX() or nil
     local py = player and player:getY() or nil
 
@@ -957,15 +1051,25 @@ local function findBestPendingIncidentForPlayer(player)
             and incidentMatchesPlayerRange(player, incident)
         then
             local rescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
-            local score = rescueSite and px and py and distanceSq(px, py, rescueSite.x, rescueSite.y) or math.huge
-            if not bestScore or score < bestScore then
-                bestIncident = incident
-                bestScore = score
-            end
+            results[#results + 1] = {
+                incident = incident,
+                score = rescueSite and px and py and distanceSq(px, py, rescueSite.x, rescueSite.y) or math.huge,
+            }
         end
     end
 
-    return bestIncident
+    table.sort(results, function(left, right)
+        if tonumber(left and left.score) == tonumber(right and right.score) then
+            return tostring(left and left.incident and left.incident.incidentId or "") < tostring(right and right.incident and right.incident.incidentId or "")
+        end
+        return (tonumber(left and left.score) or math.huge) < (tonumber(right and right.score) or math.huge)
+    end)
+
+    local incidents = {}
+    for _, entry in ipairs(results) do
+        incidents[#incidents + 1] = entry.incident
+    end
+    return incidents
 end
 
 local function buildEscortRewards(incident)
@@ -1209,6 +1313,8 @@ local function buildPendingScannerEntry(player, incident)
     end
 
     local dist = distanceBetween(player:getX(), player:getY(), rescueSite.x, rescueSite.y)
+    local expiresAt = tonumber(incident.expiresAt) or 0
+    local remainingHours = expiresAt > 0 and math.max(0, (expiresAt - (DO.NowMs and DO.NowMs() or 0)) / (1000 * 60 * 60)) or nil
     return {
         uuid = tostring(incident.traderId or incident.incidentId),
         hookId = HOOK_ID,
@@ -1224,7 +1330,7 @@ local function buildPendingScannerEntry(player, incident)
         y = rescueSite.y,
         z = rescueSite.z,
         distText = string.format("Distress House: %.0fm", dist),
-        expireText = "Pending rescue",
+        expireText = remainingHours and string.format("Signal %.1fh", remainingHours) or "Pending rescue",
         isLive = false,
         canLock = false,
         locked = false,
@@ -1291,6 +1397,9 @@ function Hook.refreshIncidentsForPlayer(player)
     local changed = false
     local activeQuest = getActiveHookQuest(player)
     local currentAccepted = nil
+    local pendingCount = 0
+    local syncedCount = 0
+    local createdCount = 0
 
     for incidentID, incident in pairs(hookStore.incidents or {}) do
         local liveIncident = worldState.incidents[tostring(incidentID)]
@@ -1309,6 +1418,7 @@ function Hook.refreshIncidentsForPlayer(player)
             changed = true
         else
             hookStore.incidents[incidentID] = copyIncidentForPlayer(liveIncident)
+            pendingCount = pendingCount + 1
         end
     end
 
@@ -1322,24 +1432,79 @@ function Hook.refreshIncidentsForPlayer(player)
         if currentAccepted then
             trySpawnExteriorZombies(player, currentAccepted)
         end
+        hookLog(
+            "Refresh",
+            "Escort refresh suspended pendingCount=" .. tostring(pendingCount)
+                .. " accepted=" .. tostring(currentAccepted ~= nil)
+                .. " activeQuest=" .. tostring(activeQuest and activeQuest.id or "none")
+        )
         if changed then
             player:transmitModData()
         end
         return changed
     end
 
-    local pendingIncident = findBestPendingIncidentForPlayer(player)
-    if not pendingIncident then
-        pendingIncident = createIncidentForPlayer(player)
-        if pendingIncident then
+    local targetPendingCount, minimumPendingCount, extraChance, extraPassed, extraRoll = buildEscortRefreshTarget()
+    local selectedIncidentIds = {}
+
+    for incidentID, incident in pairs(hookStore.incidents or {}) do
+        if tostring(incident and incident.status or "") == "pending" then
+            selectedIncidentIds[tostring(incidentID)] = true
+        end
+    end
+
+    for _, pendingIncident in ipairs(collectPendingIncidentsForPlayer(player)) do
+        local incidentId = tostring(pendingIncident.incidentId or "")
+        if incidentId ~= "" and not selectedIncidentIds[incidentId] and pendingCount < targetPendingCount then
+            syncIncidentMirrorForPlayer(player, pendingIncident)
+            trySpawnExteriorZombies(player, pendingIncident)
+            selectedIncidentIds[incidentId] = true
+            pendingCount = pendingCount + 1
+            syncedCount = syncedCount + 1
             changed = true
         end
     end
 
-    if pendingIncident then
-        syncIncidentMirrorForPlayer(player, pendingIncident)
-        trySpawnExteriorZombies(player, pendingIncident)
+    local selectedTraderIds = {}
+    for _, incident in pairs(hookStore.incidents or {}) do
+        if tostring(incident and incident.status or "") == "pending" and incident.traderId then
+            selectedTraderIds[tostring(incident.traderId)] = true
+        end
+    end
+
+    while pendingCount < targetPendingCount do
+        local createdIncident = createIncidentForPlayer(player, selectedTraderIds)
+        if not createdIncident then
+            break
+        end
+
+        syncIncidentMirrorForPlayer(player, createdIncident)
+        trySpawnExteriorZombies(player, createdIncident)
+        selectedIncidentIds[tostring(createdIncident.incidentId or "")] = true
+        selectedTraderIds[tostring(createdIncident.traderId or "")] = true
+        pendingCount = pendingCount + 1
+        createdCount = createdCount + 1
         changed = true
+    end
+
+    hookLog(
+        "Refresh",
+        "Escort refresh pending=" .. tostring(pendingCount)
+            .. " minimum=" .. tostring(minimumPendingCount)
+            .. " target=" .. tostring(targetPendingCount)
+            .. " synced=" .. tostring(syncedCount)
+            .. " created=" .. tostring(createdCount)
+            .. " extraChance=" .. tostring(extraChance)
+            .. " extraRoll=" .. tostring(extraRoll ~= nil and extraRoll or "n/a")
+            .. " extraPassed=" .. tostring(extraPassed)
+    )
+    if pendingCount < minimumPendingCount then
+        hookLog(
+            "Refresh",
+            "Escort floor unmet pending=" .. tostring(pendingCount)
+                .. " minimum=" .. tostring(minimumPendingCount)
+                .. " (see Create logs for rejection reasons)"
+        )
     end
 
     if changed then

@@ -230,16 +230,27 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
                 or blueprint.grantItemDifficulty
                 or baseDifficulty
         )
-        spec.objectives = {
-            {
-                id = tostring(objectiveConfig.id or "deliver_package"),
-                type = "deliverItem",
-                label = tostring(objectiveConfig.label or "Deliver the package"),
+        spec.pickupLocation = Runtime.normalizeLocation(traderContext and traderContext.pickupLocation or nil)
+        spec.grantItemOnPickup = spec.pickupLocation ~= nil
+        spec.objectives = {}
+        if spec.pickupLocation then
+            spec.objectives[#spec.objectives + 1] = {
+                id = "pickup_package",
+                type = "pickupItem",
+                label = "Pick up the package",
                 required = 1,
+                targetLocation = spec.pickupLocation,
                 questItemType = spec.grantItemType,
-                consumeOnComplete = objectiveConfig.consumeOnComplete ~= false,
-                radius = targetLocation.radius,
-            },
+            }
+        end
+        spec.objectives[#spec.objectives + 1] = {
+            id = tostring(objectiveConfig.id or "deliver_package"),
+            type = "deliverItem",
+            label = tostring(objectiveConfig.label or "Deliver the package"),
+            required = 1,
+            questItemType = spec.grantItemType,
+            consumeOnComplete = objectiveConfig.consumeOnComplete ~= false,
+            radius = targetLocation.radius,
         }
     elseif family == "KillZone" then
         local encounterConfig = type(blueprint.encounter) == "table" and blueprint.encounter or {}
@@ -387,7 +398,12 @@ local function blueprintMatchesEligibility(player, traderContext, blueprint)
     local traderArchetype = traderContext and (traderContext.archetype or traderContext.role) or nil
     local factionID = traderContext and traderContext.factionID or nil
 
-    if not Runtime.matchesNormalizedList(traderState, eligibility.traderStates) then
+    if not Runtime.matchesNormalizedList(traderState, eligibility.traderStates)
+        and not (
+            Runtime.normalizeText
+            and Runtime.normalizeText(traderState) == "trading"
+            and Runtime.matchesNormalizedList("Resting", eligibility.traderStates)
+        ) then
         return false
     end
     if not Runtime.matchesNormalizedList(traderArchetype, eligibility.archetypes) then

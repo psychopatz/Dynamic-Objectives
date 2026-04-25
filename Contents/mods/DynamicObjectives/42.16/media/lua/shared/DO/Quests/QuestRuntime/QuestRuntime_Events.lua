@@ -138,6 +138,16 @@ function Quests.OnPlayerQuestUpdate(player)
                             end
                             changed = true
                         end
+                    elseif objective.type == "pickupItem" then
+                        local location = Runtime.questLocationFor(quest, objective)
+                        if Runtime.isWithinLocation(location, px, py, pz) then
+                            if quest.grantItemType and Quests.RequestSpawnQuestItem then
+                                Quests.RequestSpawnQuestItem(player, quest.grantItemType, tonumber(quest.grantItemDifficulty) or 1.0, quest.id)
+                            end
+                            objective.progress = objective.required
+                            objective.completed = true
+                            changed = true
+                        end
                     elseif objective.type == "deliverItem" then
                         local location = Runtime.questLocationFor(quest, objective)
                         if Runtime.isWithinLocation(location, px, py, pz) then

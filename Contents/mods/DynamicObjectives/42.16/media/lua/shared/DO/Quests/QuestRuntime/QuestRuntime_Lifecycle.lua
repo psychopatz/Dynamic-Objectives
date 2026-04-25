@@ -288,10 +288,24 @@ function Quests.StartQuest(player, spec)
         quest.difficulty, quest.difficultyFactors = Runtime.resolveQuestDifficulty(player, quest, quest.targetLocation)
     end
     quest.difficultyLabel = Runtime.getQuestDifficultyLabel(quest.difficulty)
-    quest.baseTimeLimitHours = math.max(0, tonumber(quest.baseTimeLimitHours or quest.timeLimitHours or quest.timerHours or quest.expireHours) or 0)
+    local explicitBaseTimeLimitHours = tonumber(quest.baseTimeLimitHours)
+    local explicitTimeLimitHours = tonumber(quest.timeLimitHours)
+    if not explicitTimeLimitHours or explicitTimeLimitHours <= 0 then
+        explicitTimeLimitHours = tonumber(quest.timerHours)
+    end
+    if not explicitTimeLimitHours or explicitTimeLimitHours <= 0 then
+        explicitTimeLimitHours = tonumber(quest.expireHours)
+    end
+    quest.baseTimeLimitHours = math.max(0, explicitBaseTimeLimitHours and explicitBaseTimeLimitHours > 0 and explicitBaseTimeLimitHours or explicitTimeLimitHours or 0)
+    local defaultedTimeLimit = false
+    if quest.baseTimeLimitHours <= 0 and Runtime.getConfiguredQuestExpirationMultiplier and Runtime.getConfiguredQuestExpirationMultiplier() > 0 then
+        quest.baseTimeLimitHours = 24
+        defaultedTimeLimit = true
+    end
+    local alreadyScaledTimeLimit = quest.expirationScaled == true and defaultedTimeLimit ~= true
     quest.timeLimitHours = Runtime.scaleQuestTimeLimit(
-        quest.expirationScaled == true and quest.timeLimitHours or quest.baseTimeLimitHours,
-        quest.expirationScaled == true
+        alreadyScaledTimeLimit and quest.timeLimitHours or quest.baseTimeLimitHours,
+        alreadyScaledTimeLimit
     )
     quest.expirationScaled = true
     if quest.timeLimitHours > 0 then
@@ -350,7 +364,7 @@ function Quests.StartQuest(player, spec)
     Runtime.markChainQuestStarted(store, quest)
     applyQuestFocus(store, quest)
 
-    if quest.grantItemType and Quests.RequestSpawnQuestItem then
+    if quest.grantItemType and quest.grantItemOnPickup ~= true and Quests.RequestSpawnQuestItem then
         Quests.RequestSpawnQuestItem(player, quest.grantItemType, tonumber(quest.grantItemDifficulty) or 1.0, quest.id)
     end
 

@@ -6,88 +6,68 @@ local Quests = DO.Quests
 Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
-function Quests.GetStore(player, create)
-    return Runtime.getStore(player, create)
+local function getTraderID(context)
+    if type(context) ~= "table" then
+        return ""
+    end
+    return tostring(context.traderID or context.id or "")
 end
 
-function Quests.BuildObjectiveHookOffer(player, hookID, context)
-    local hook = hookID and DO.GetObjectiveHook and DO.GetObjectiveHook(hookID) or nil
-    if not hook or not hook.buildOffer then
+local function getOfferFamily(offer)
+    if type(offer) ~= "table" then
         return nil
     end
-    return hook.buildOffer(player, context)
+
+    local family = offer.family
+        or (offer.questSpec and offer.questSpec.blueprintFamily)
+        or (offer.activeQuest and offer.activeQuest.blueprintFamily)
+        or (offer.blueprint and offer.blueprint.family)
+        or nil
+    return family and tostring(family) or nil
 end
 
-function Quests.GetEligibleTraderOffers(player, traderContext)
-    local results = {}
-    local store = Runtime.getStore(player, true)
-    if not store or not DO.GetQuestBlueprintList then
-        return results
+local function isQuestRelevantToTrader(quest, traderContext)
+    if type(quest) ~= "table" then
+        return false
     end
 
-    local pendingOffer = Runtime.buildPendingChainOffer and Runtime.buildPendingChainOffer(store, player, traderContext) or nil
-    if pendingOffer then
-        results[1] = pendingOffer
-        return results
+    local traderID = getTraderID(traderContext)
+    local sourceTrader = type(quest.sourceTrader) == "table" and quest.sourceTrader or {}
+    local sourceTraderID = tostring(sourceTrader.traderID or sourceTrader.id or "")
+    if traderID ~= "" and sourceTraderID ~= "" then
+        return traderID == sourceTraderID
     end
 
-    for _, blueprint in ipairs(DO.GetQuestBlueprintList()) do
-        if blueprint and blueprint.enabled ~= false and Runtime.blueprintMatchesEligibility(player, traderContext, blueprint) then
-            local activeQuest = Runtime.getActiveQuestForBlueprint(store, blueprint.id)
-            local cooldownRemaining = Runtime.getBlueprintCooldownRemaining(store, blueprint)
-            local questSpec = nil
-            if not activeQuest and cooldownRemaining <= 0 then
-                questSpec = Runtime.buildEntryChainSpec and Runtime.buildEntryChainSpec(player, traderContext, blueprint, store)
-                    or Runtime.buildQuestSpecFromBlueprint(player, traderContext, blueprint)
-            end
+    return true
+end
 
-            results[#results + 1] = {
-                blueprintId = blueprint.id,
-                blueprint = blueprint,
-                activeQuest = activeQuest,
-                cooldownRemainingHours = cooldownRemaining,
-                canStart = activeQuest == nil and cooldownRemaining <= 0 and questSpec ~= nil,
-                weight = tonumber(questSpec and questSpec.offerWeight) or tonumber(blueprint.weight) or 1,
-                questSpec = questSpec,
-                dialogueTree = questSpec and questSpec.dialogueTree and DO.GetQuestDialogueTree and DO.GetQuestDialogueTree(questSpec.dialogueTree)
-                    or Runtime.resolveBlueprintDialogueTree(blueprint),
-            }
+local function sortOffersForOutput(left, right)
+    local leftPriority = tonumber(left and left.outputPriority) or 0
+    local rightPriority = tonumber(right and right.outputPriority) or 0
+    if leftPriority == rightPriority then
+        local leftWeight = tonumber(left and left.weight) or 0
+        local rightWeight = tonumber(right and right.weight) or 0
+        if leftWeight == rightWeight then
+            local leftName = tostring(left and ((left.questSpec and left.questSpec.title) or (left.activeQuest and left.activeQuest.title) or (left.blueprint and left.blueprint.name) or left.blueprintId or ""))
+            local rightName = tostring(right and ((right.questSpec and right.questSpec.title) or (right.activeQuest and right.activeQuest.title) or (right.blueprint and right.blueprint.name) or right.blueprintId or ""))
+            return leftName < rightName
         end
+        return leftWeight > rightWeight
     end
-
-    return results
+    return leftPriority > rightPriority
 end
 
-function Quests.BuildTraderQuestOffer(player, traderContext)
-    local offers = Quests.GetEligibleTraderOffers(player, traderContext)
-    if #offers == 0 then
+local function buildResolvedOfferData(player, traderContext, offer)
+    if type(offer) ~= "table" then
         return nil
     end
 
-    local startable = {}
-    local active = {}
-    local blocked = {}
+    local blueprint = offer.blueprint
+    local tree = offer.dialogueTree or { nodes = {}, choices = {} }
+    local context = Runtime.buildTraderDialogueContext(player, traderContext, blueprint, offer.questSpec, offer.activeQuest)
+    local resolved = DO.DeepCopy(offer)
 
-    for _, offer in ipairs(offers) do
-        if offer.canStart == true then
-            startable[#startable + 1] = offer
-        elseif offer.activeQuest then
-            active[#active + 1] = offer
-        else
-            blocked[#blocked + 1] = offer
-        end
-    end
-
-    local selected = Runtime.pickWeightedOffer(#startable > 0 and startable or (#active > 0 and active or blocked))
-    if not selected then
-        return nil
-    end
-
-    local blueprint = selected.blueprint
-    local tree = selected.dialogueTree or { nodes = {}, choices = {} }
-    local context = Runtime.buildTraderDialogueContext(player, traderContext, blueprint, selected.questSpec, selected.activeQuest)
-
-    selected.choiceLabels = {
+    resolved.choiceLabels = {
         accept = tostring(tree.choices and tree.choices.accept or "Accept"),
         details = tostring(tree.choices and tree.choices.details or "Tell me more"),
         rewards = tostring(tree.choices and tree.choices.rewards or "What's the reward?"),
@@ -95,9 +75,9 @@ function Quests.BuildTraderQuestOffer(player, traderContext)
         back = tostring(tree.choices and tree.choices.back or "Back"),
     }
 
-    local activeQuest = selected.activeQuest
+    local activeQuest = resolved.activeQuest
     if activeQuest then
-        context["rewardPreview"] = tostring(activeQuest.rewardPreview or context["rewardPreview"])
+        context.rewardPreview = tostring(activeQuest.rewardPreview or context.rewardPreview)
         context["quest.name"] = tostring(activeQuest.name or context["quest.name"])
         if activeQuest.targetLocation and activeQuest.targetLocation.label then
             context["target.label"] = tostring(activeQuest.targetLocation.label)
@@ -105,11 +85,11 @@ function Quests.BuildTraderQuestOffer(player, traderContext)
     end
 
     local unavailableSuffix = ""
-    if tonumber(selected.cooldownRemainingHours) and tonumber(selected.cooldownRemainingHours) > 0 then
-        unavailableSuffix = string.format(" Check back in %.1f hours.", tonumber(selected.cooldownRemainingHours))
+    if tonumber(resolved.cooldownRemainingHours) and tonumber(resolved.cooldownRemainingHours) > 0 then
+        unavailableSuffix = string.format(" Check back in %.1f hours.", tonumber(resolved.cooldownRemainingHours))
     end
 
-    selected.resolvedDialogue = {
+    resolved.resolvedDialogue = {
         offer = Runtime.formatDialogueText(tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
         details = Runtime.formatDialogueText(tree.nodes and tree.nodes.details and tree.nodes.details.text or tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
         rewards = Runtime.formatDialogueText(tree.nodes and tree.nodes.rewards and tree.nodes.rewards.text or "", context),
@@ -126,12 +106,156 @@ function Quests.BuildTraderQuestOffer(player, traderContext)
     }
 
     if activeQuest then
-        selected.progressSummary = Quests.BuildSummaryText(activeQuest, player)
-    elseif selected.questSpec then
-        selected.progressSummary = Quests.BuildSummaryText(selected.questSpec, player)
+        resolved.progressSummary = Quests.BuildSummaryText(activeQuest, player)
+    elseif resolved.questSpec then
+        resolved.progressSummary = Quests.BuildSummaryText(resolved.questSpec, player)
     end
 
-    return selected
+    local label = tostring(
+        (resolved.questSpec and (resolved.questSpec.title or resolved.questSpec.name))
+            or (activeQuest and (activeQuest.title or activeQuest.name))
+            or (blueprint and (blueprint.name or blueprint.id))
+            or resolved.blueprintId
+            or "Objective"
+    )
+
+    if resolved.isChainFollowup == true then
+        resolved.menuLabel = label .. " (Follow-up)"
+        resolved.outputPriority = 300
+    elseif activeQuest then
+        resolved.menuLabel = label .. " (Active)"
+        resolved.outputPriority = 250
+    else
+        resolved.menuLabel = label
+        resolved.outputPriority = resolved.outputPriority or 100
+    end
+
+    resolved.family = getOfferFamily(resolved)
+    return resolved
+end
+
+function Quests.GetStore(player, create)
+    return Runtime.getStore(player, create)
+end
+
+function Quests.BuildObjectiveHookOffer(player, hookID, context)
+    local hook = hookID and DO.GetObjectiveHook and DO.GetObjectiveHook(hookID) or nil
+    if not hook or not hook.buildOffer then
+        return nil
+    end
+    return hook.buildOffer(player, context)
+end
+
+function Quests.GetEligibleTraderOffers(player, traderContext)
+    local results = {}
+    local store = Runtime.getStore(player, true)
+    if not store then
+        return results
+    end
+
+    local occupiedFamilies = {}
+    local bestBlocked = nil
+    local pendingOffer = Runtime.buildPendingChainOffer and Runtime.buildPendingChainOffer(store, player, traderContext) or nil
+    if pendingOffer then
+        pendingOffer.outputPriority = 300
+        results[#results + 1] = pendingOffer
+        local family = getOfferFamily(pendingOffer)
+        if family then
+            occupiedFamilies[family] = true
+        end
+    end
+
+    local activePriority = 250
+    for _, blueprint in ipairs(DO.GetQuestBlueprintList and DO.GetQuestBlueprintList() or {}) do
+        if blueprint and blueprint.enabled ~= false then
+            local activeQuest = Runtime.getActiveQuestForBlueprint and Runtime.getActiveQuestForBlueprint(store, blueprint.id) or nil
+            if activeQuest and isQuestRelevantToTrader(activeQuest, traderContext) then
+                results[#results + 1] = {
+                    blueprintId = tostring(blueprint.id or ""),
+                    blueprint = blueprint,
+                    activeQuest = activeQuest,
+                    cooldownRemainingHours = 0,
+                    canStart = false,
+                    weight = tonumber(blueprint.weight) or 1,
+                    questSpec = nil,
+                    dialogueTree = activeQuest.dialogueTree and DO.GetQuestDialogueTree and DO.GetQuestDialogueTree(activeQuest.dialogueTree)
+                        or Runtime.resolveBlueprintDialogueTree(blueprint),
+                    outputPriority = activePriority,
+                }
+                activePriority = activePriority - 1
+                local family = getOfferFamily({ blueprint = blueprint, activeQuest = activeQuest })
+                if family then
+                    occupiedFamilies[family] = true
+                end
+            elseif Runtime.blueprintMatchesEligibility and Runtime.blueprintMatchesEligibility(player, traderContext, blueprint) then
+                local cooldownRemainingHours = Runtime.getBlueprintCooldownRemaining and Runtime.getBlueprintCooldownRemaining(store, blueprint) or 0
+                if tonumber(cooldownRemainingHours) and tonumber(cooldownRemainingHours) > 0 then
+                    if not bestBlocked or tonumber(cooldownRemainingHours) < tonumber(bestBlocked.cooldownRemainingHours) then
+                        bestBlocked = {
+                            blueprintId = tostring(blueprint.id or ""),
+                            blueprint = blueprint,
+                            activeQuest = nil,
+                            cooldownRemainingHours = cooldownRemainingHours,
+                            canStart = false,
+                            weight = tonumber(blueprint.weight) or 1,
+                            questSpec = nil,
+                            dialogueTree = Runtime.resolveBlueprintDialogueTree(blueprint),
+                            outputPriority = 10,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    local ambientOffers = Runtime.selectAmbientRestingOffers and Runtime.selectAmbientRestingOffers(player, traderContext, store, occupiedFamilies) or {}
+    local ambientPriority = 100
+    for _, ambient in ipairs(ambientOffers) do
+        results[#results + 1] = {
+            blueprintId = tostring(ambient.blueprintId or ""),
+            blueprint = ambient.blueprint,
+            activeQuest = nil,
+            cooldownRemainingHours = 0,
+            canStart = true,
+            weight = tonumber(ambient.weight) or tonumber(ambient.blueprint and ambient.blueprint.weight) or 1,
+            questSpec = DO.DeepCopy(ambient.questSpec),
+            dialogueTree = ambient.questSpec and ambient.questSpec.dialogueTree and DO.GetQuestDialogueTree and DO.GetQuestDialogueTree(ambient.questSpec.dialogueTree)
+                or Runtime.resolveBlueprintDialogueTree(ambient.blueprint),
+            outputPriority = ambientPriority,
+            family = ambient.family,
+            boardDay = ambient.boardDay,
+            boardExpiresAtWorldHours = ambient.boardExpiresAtWorldHours,
+            generatedAtWorldHours = ambient.generatedAtWorldHours,
+        }
+        ambientPriority = ambientPriority - 1
+    end
+
+    if #results == 0 and bestBlocked then
+        results[#results + 1] = bestBlocked
+    end
+
+    table.sort(results, sortOffersForOutput)
+    return results
+end
+
+function Quests.BuildTraderQuestOffers(player, traderContext)
+    local offers = Quests.GetEligibleTraderOffers(player, traderContext)
+    local results = {}
+
+    for _, offer in ipairs(offers) do
+        local resolved = buildResolvedOfferData(player, traderContext, offer)
+        if resolved then
+            results[#results + 1] = resolved
+        end
+    end
+
+    table.sort(results, sortOffersForOutput)
+    return results
+end
+
+function Quests.BuildTraderQuestOffer(player, traderContext)
+    local offers = Quests.BuildTraderQuestOffers(player, traderContext)
+    return offers[1]
 end
 
 function Quests.StartQuestFromBlueprint(player, traderContext, blueprintID)
