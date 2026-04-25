@@ -152,8 +152,9 @@ function Quests.ValidateDelivery(item, requiredQuestID)
         return false
     end
 
-    return (modData.IsQuestItem == true and modData.QuestID == requiredQuestID)
-        or (modData.DOQuestDrop == true and modData.DOQuestID == requiredQuestID)
+    local questID = tostring(requiredQuestID or "")
+    return (modData.IsQuestItem == true and tostring(modData.QuestID or "") == questID)
+        or (modData.DOQuestDrop == true and tostring(modData.DOQuestID or "") == questID)
 end
 
 function Quests.RemoveInventoryItem(item)

@@ -267,6 +267,11 @@ local function getConfiguredMinimumEscortIncidents()
     return normalizeCountSetting(sandbox and sandbox.MinimumEscortIncidents or 1, 3)
 end
 
+local function getConfiguredQuestRewardMinimumMoney()
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return math.max(0, math.floor(tonumber(sandbox and sandbox.QuestRewardMinimumMoney) or 75))
+end
+
 local function rollChancePercent(chance)
     local pct = normalizeChancePercent(chance)
     if pct <= 0 then
@@ -462,6 +467,7 @@ Runtime.getConfiguredRestingContractChancePercent = getConfiguredRestingContract
 Runtime.getConfiguredMinimumRestingFamiliesAvailable = getConfiguredMinimumRestingFamiliesAvailable
 Runtime.getConfiguredEscortIncidentChancePercent = getConfiguredEscortIncidentChancePercent
 Runtime.getConfiguredMinimumEscortIncidents = getConfiguredMinimumEscortIncidents
+Runtime.getConfiguredQuestRewardMinimumMoney = getConfiguredQuestRewardMinimumMoney
 Runtime.rollChancePercent = rollChancePercent
 Runtime.scaleQuestTimeLimit = scaleQuestTimeLimit
 Runtime.getWorldAgeHours = getWorldAgeHours

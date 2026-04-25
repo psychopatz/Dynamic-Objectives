@@ -281,6 +281,10 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
         local baseCount = math.max(1, math.floor(tonumber(encounterConfig.baseCount or encounterConfig.count) or 1))
         local dropEntry = DO.ResolveWeightedEntry and DO.ResolveWeightedEntry(blueprint.dropItemPool) or nil
         local dropItemType = dropEntry and tostring(dropEntry.itemType or dropEntry.item or "") or nil
+        local returnLocation = Runtime.normalizeLocation(
+            traderContext and (traderContext.pickupLocation or traderContext.location or traderContext.targetLocation) or nil
+        ) or Runtime.normalizeLocation(targetLocation)
+        local giverName = tostring(traderContext and (traderContext.displayName or traderContext.name or traderContext.traderName) or "the quest giver")
         spec.encounter = {
             id = tostring(encounterConfig.id or "sample_hunt_encounter"),
             kind = tostring(encounterConfig.kind or "hunt_drop"),
@@ -311,8 +315,19 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
                 spawnAfterKills = math.max(1, math.floor(tonumber(objectiveConfig.spawnAfterKills) or 4)),
                 encounterOnly = true,
                 requireAreaClear = spec.encounter.requireAreaClear == true,
-                completeRemainingObjectives = objectiveConfig.completeRemainingObjectives == true,
-                completeQuestOnComplete = objectiveConfig.completeQuestOnComplete == true,
+                completeRemainingObjectives = false,
+                completeQuestOnComplete = false,
+            },
+            {
+                id = tostring(objectiveConfig.returnID or "return_drop"),
+                type = "deliverItem",
+                label = tostring(objectiveConfig.returnLabel or ("Return the sample to " .. giverName)),
+                required = 1,
+                targetLocation = returnLocation,
+                questItemType = dropItemType ~= "" and dropItemType or nil,
+                consumeOnComplete = objectiveConfig.consumeOnReturn ~= false,
+                skipAreaClearOnComplete = true,
+                radius = returnLocation and returnLocation.radius or targetLocation.radius,
             },
         }
     else

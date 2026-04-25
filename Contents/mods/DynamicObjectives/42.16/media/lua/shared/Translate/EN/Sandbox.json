@@ -19,5 +19,7 @@
     "Sandbox_DynamicObjectives.QuestRewardPoolFoods": "Quest Rewards: Foods",
     "Sandbox_DynamicObjectives.QuestRewardPoolFoods_tooltip": "Allows Dynamic Objectives procedural quest rewards to include food and drink items from the Dynamic Trading item registry.",
     "Sandbox_DynamicObjectives.QuestRewardPoolBags": "Quest Rewards: Bags",
-    "Sandbox_DynamicObjectives.QuestRewardPoolBags_tooltip": "Allows Dynamic Objectives procedural quest rewards to include bag and backpack items from the Dynamic Trading item registry."
+    "Sandbox_DynamicObjectives.QuestRewardPoolBags_tooltip": "Allows Dynamic Objectives procedural quest rewards to include bag and backpack items from the Dynamic Trading item registry.",
+    "Sandbox_DynamicObjectives.QuestRewardMinimumMoney": "Quest Reward Minimum Money",
+    "Sandbox_DynamicObjectives.QuestRewardMinimumMoney_tooltip": "Minimum cash paid directly to the player when a Dynamic Objectives quest includes a money reward. Set to 0 to disable the floor."
 }

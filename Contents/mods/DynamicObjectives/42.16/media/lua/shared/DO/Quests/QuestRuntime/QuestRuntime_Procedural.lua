@@ -146,34 +146,42 @@ local FAMILY_OBJECTIVE_LABELS = {
         medical = {
             kill = "Purge the marked medical cluster",
             drop = "Recover the field sample",
+            returnDrop = "Return the field sample",
         },
         combat = {
             kill = "Purge the hostile knot",
             drop = "Recover the weapons cache",
+            returnDrop = "Deliver the weapons cache",
         },
         survival = {
             kill = "Break the marked cluster",
             drop = "Recover the survival cache",
+            returnDrop = "Return the survival cache",
         },
         engineering = {
             kill = "Purge the machine yard cluster",
             drop = "Recover the repair parts",
+            returnDrop = "Deliver the repair parts",
         },
         food = {
             kill = "Purge the ration site cluster",
             drop = "Recover the ration bundle",
+            returnDrop = "Return the ration bundle",
         },
         scavenge = {
             kill = "Purge the scavenging cluster",
             drop = "Recover the salvage parcel",
+            returnDrop = "Deliver the salvage parcel",
         },
         fuel = {
             kill = "Purge the fuel depot cluster",
             drop = "Recover the fuel cache",
+            returnDrop = "Return the fuel cache",
         },
         mixed = {
             kill = "Purge the marked cluster",
             drop = "Recover the objective",
+            returnDrop = "Return the objective",
         },
     },
     Escort = {
@@ -583,6 +591,9 @@ local function applyGeneratedFields(spec, request, themeID, rewardData)
         end
         if spec.objectives[2] then
             spec.objectives[2].label = labels.drop
+        end
+        if spec.objectives[3] then
+            spec.objectives[3].label = labels.returnDrop
         end
     elseif family == "Escort" and spec.objectives and spec.objectives[1] then
         spec.objectives[1].label = FAMILY_OBJECTIVE_LABELS.Escort[themeID] or FAMILY_OBJECTIVE_LABELS.Escort.mixed

@@ -167,6 +167,9 @@ function Quests.OnPlayerQuestUpdate(player)
                                 end
                                 objective.progress = objective.required
                                 objective.completed = true
+                                if objective.skipAreaClearOnComplete == true then
+                                    quest.skipAreaClear = true
+                                end
                                 changed = true
                             end
                         end

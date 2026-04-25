@@ -73,6 +73,7 @@ local function normalizeObjective(index, quest, objective)
     normalized.questItemType = normalized.questItemType and tostring(normalized.questItemType) or nil
     normalized.completeQuestOnComplete = normalized.completeQuestOnComplete == true
     normalized.completeRemainingObjectives = normalized.completeRemainingObjectives == true or normalized.completeQuestOnComplete == true
+    normalized.skipAreaClearOnComplete = normalized.skipAreaClearOnComplete == true
     return normalized
 end
 

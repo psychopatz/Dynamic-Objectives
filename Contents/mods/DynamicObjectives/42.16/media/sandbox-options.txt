@@ -91,3 +91,13 @@ option DynamicObjectives.QuestRewardPoolBags
     page = DynamicObjectives,
     translation = DynamicObjectives.QuestRewardPoolBags,
 }
+
+option DynamicObjectives.QuestRewardMinimumMoney
+{
+    type = integer,
+    default = 75,
+    min = 0,
+    max = 10000,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestRewardMinimumMoney,
+}

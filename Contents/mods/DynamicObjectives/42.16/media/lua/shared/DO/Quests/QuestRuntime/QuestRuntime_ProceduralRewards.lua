@@ -168,6 +168,14 @@ local function getRewardCategorySettings()
     }
 end
 
+local function getMinimumMoneyReward()
+    if Runtime.getConfiguredQuestRewardMinimumMoney then
+        return Runtime.getConfiguredQuestRewardMinimumMoney()
+    end
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return math.max(0, math.floor(tonumber(sandbox and sandbox.QuestRewardMinimumMoney) or 75))
+end
+
 local function getRewardCategoryWeights(themeID)
     local weights = { Weapons = 1.2, Medicine = 1.2, Foods = 1.2, Bags = 0.8 }
     themeID = tostring(themeID or "")
@@ -501,7 +509,10 @@ function Runtime.buildProceduralRewardData(request)
 
     local cashAmount = 0
     if request.allowCash ~= false then
-        cashAmount = math.max(0, math.floor(randomRatio(profile.cashMin, profile.cashMax) * difficulty + 0.5))
+        cashAmount = math.max(
+            getMinimumMoneyReward(),
+            math.max(0, math.floor(randomRatio(profile.cashMin, profile.cashMax) * difficulty + 0.5))
+        )
         if cashAmount > 0 then
             rewards[#rewards + 1] = { kind = "money", amount = cashAmount }
         end

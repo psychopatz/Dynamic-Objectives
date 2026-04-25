@@ -47,6 +47,15 @@ local function normalizePositiveWhole(value, fallback)
     return math.max(0, number)
 end
 
+local function getMinimumMoneyReward()
+    local runtime = DO.Quests and DO.Quests.Runtime or nil
+    if runtime and runtime.getConfiguredQuestRewardMinimumMoney then
+        return runtime.getConfiguredQuestRewardMinimumMoney()
+    end
+    local sandbox = SandboxVars and SandboxVars.DynamicObjectives or nil
+    return math.max(0, math.floor(tonumber(sandbox and sandbox.QuestRewardMinimumMoney) or 75))
+end
+
 local function normalizeRewardContext(context)
     if type(context) ~= "table" then
         return {}
@@ -97,6 +106,7 @@ local function normalizeRewardEntry(index, reward, context)
         if amount <= 0 then
             return nil
         end
+        amount = math.max(amount, getMinimumMoneyReward())
 
         return {
             id = id,

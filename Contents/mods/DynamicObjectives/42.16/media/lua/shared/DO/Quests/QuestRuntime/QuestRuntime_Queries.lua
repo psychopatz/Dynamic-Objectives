@@ -99,7 +99,7 @@ local function buildObjectiveLines(quest, zoneState)
                 line.value = objective.dropState and objective.dropState.spawned and "Loot the marked corpse drop" or "Keep clearing the zone"
             end
         elseif objective.type == "deliverItem" then
-            line.value = objective.completed == true and "Delivered" or "Take the package to the marker"
+            line.value = objective.completed == true and "Delivered" or "Take the objective item to the marker"
         elseif objective.type == "pickupItem" then
             line.value = objective.completed == true and "Picked up" or "Go to the sender and collect the package"
         elseif objective.type == "escortTarget" then
