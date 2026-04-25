@@ -8,6 +8,8 @@ DO_CompletionModal = ISPanel:derive("DO_CompletionModal")
 DO_CompletionModal.instance = DO_CompletionModal.instance or nil
 DO_CompletionModal.lastCompletedQuestID = DO_CompletionModal.lastCompletedQuestID or nil
 DO_CompletionModal.lastCompletedAt = DO_CompletionModal.lastCompletedAt or 0
+DO_CompletionModal.initializedCompletionBaseline = DO_CompletionModal.initializedCompletionBaseline or false
+DO_CompletionModal.sessionStartedAt = DO_CompletionModal.sessionStartedAt or 0
 
 local DO = DynamicObjectives
 
@@ -112,10 +114,28 @@ local function onTick()
 
     local quest = DO.Quests.GetLatestCompletedQuest(player)
     if not quest or tonumber(quest.completedAt) == nil then
+        DO_CompletionModal.initializedCompletionBaseline = true
         return
     end
 
     local completedAt = tonumber(quest.completedAt) or 0
+    if DO_CompletionModal.sessionStartedAt <= 0 and DO.NowMs then
+        DO_CompletionModal.sessionStartedAt = tonumber(DO.NowMs()) or 0
+    end
+
+    if DO_CompletionModal.initializedCompletionBaseline ~= true then
+        DO_CompletionModal.initializedCompletionBaseline = true
+        DO_CompletionModal.lastCompletedQuestID = quest.id
+        DO_CompletionModal.lastCompletedAt = completedAt
+        return
+    end
+
+    if DO_CompletionModal.sessionStartedAt > 0 and completedAt < DO_CompletionModal.sessionStartedAt then
+        DO_CompletionModal.lastCompletedQuestID = quest.id
+        DO_CompletionModal.lastCompletedAt = math.max(completedAt, tonumber(DO_CompletionModal.lastCompletedAt) or 0)
+        return
+    end
+
     if DO_CompletionModal.lastCompletedQuestID == quest.id and completedAt <= (DO_CompletionModal.lastCompletedAt or 0) then
         return
     end

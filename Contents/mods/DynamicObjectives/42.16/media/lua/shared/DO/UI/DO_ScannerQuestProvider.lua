@@ -8,7 +8,6 @@ UI.ShowScannerQuestTab = true
 UI.ScannerQuestRefreshIntervalMs = UI.ScannerQuestRefreshIntervalMs or 30000
 
 local MAX_RADIO_QUEST_TRADERS = 2
-
 local function getWorldAgeHours()
     if DO.Quests and DO.Quests.Runtime and DO.Quests.Runtime.getWorldAgeHours then
         return DO.Quests.Runtime.getWorldAgeHours()
@@ -22,6 +21,140 @@ local function getEntryID(entry)
         return nil
     end
     return tostring(entry.questID or entry.incidentId or entry.uuid or "")
+end
+
+local function formatHoursLabel(prefix, hours)
+    local value = tonumber(hours)
+    if not value then
+        return ""
+    end
+    return string.format("%s %.1fh", tostring(prefix or "Expires"), math.max(0, value))
+end
+
+local function humanizeID(value)
+    local text = tostring(value or "")
+    text = text:gsub("_%d+$", "")
+    text = text:gsub("[%_%-]+", " ")
+    text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+        return nil
+    end
+    return (text:gsub("(%a)([%w']*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end))
+end
+
+local function resolveFactionDisplayName(factionID, fallback)
+    local id = factionID and tostring(factionID) or nil
+    if id and id ~= "" and DynamicTrading_Factions and DynamicTrading_Factions.GetFaction then
+        local ok, faction = pcall(function()
+            return DynamicTrading_Factions.GetFaction(id)
+        end)
+        if ok and type(faction) == "table" and faction.name and tostring(faction.name) ~= "" then
+            return tostring(faction.name)
+        end
+    end
+
+    if id and id ~= "" and ModData and ModData.get then
+        local factionData = ModData.get("DynamicTrading_Factions")
+        local faction = type(factionData) == "table" and factionData[id] or nil
+        if type(faction) == "table" and faction.name and tostring(faction.name) ~= "" then
+            return tostring(faction.name)
+        end
+    end
+
+    local fallbackText = fallback and tostring(fallback) or ""
+    if fallbackText ~= "" and fallbackText ~= id then
+        return fallbackText
+    end
+
+    return humanizeID(id) or humanizeID(fallbackText) or "Independent"
+end
+
+local function getItemDisplayName(itemType)
+    local value = tostring(itemType or "")
+    if value == "" then
+        return "Item"
+    end
+
+    local masterList = DynamicTrading and DynamicTrading.Config and DynamicTrading.Config.MasterList or nil
+    if type(masterList) == "table" then
+        local itemData = type(masterList[value]) == "table" and masterList[value] or nil
+        if not itemData then
+            for _, data in pairs(masterList) do
+                if type(data) == "table" and tostring(data.item or "") == value then
+                    itemData = data
+                    break
+                end
+            end
+        end
+        if itemData and itemData.displayName and tostring(itemData.displayName) ~= "" then
+            return tostring(itemData.displayName)
+        end
+        if itemData and itemData.name and tostring(itemData.name) ~= "" then
+            return tostring(itemData.name)
+        end
+    end
+
+    local manager = (getScriptManager and getScriptManager()) or (ScriptManager and ScriptManager.instance) or nil
+    if manager and manager.getItem then
+        local ok, scriptItem = pcall(function()
+            return manager:getItem(value)
+        end)
+        if ok and scriptItem and scriptItem.getDisplayName then
+            local okName, name = pcall(function()
+                return scriptItem:getDisplayName()
+            end)
+            if okName and name and tostring(name) ~= "" then
+                return tostring(name)
+            end
+        end
+    end
+
+    return humanizeID(value:match("([^%.]+)$") or value) or value
+end
+
+local function buildRewardTextFromRewards(rewards)
+    local parts = {}
+    for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
+        if type(reward) == "table" then
+            local kind = tostring(reward.kind or reward.type or ""):lower()
+            if kind == "item" then
+                local itemType = tostring(reward.itemType or reward.item or "Item")
+                parts[#parts + 1] = tostring(math.max(1, math.floor(tonumber(reward.count) or 1))) .. "x " .. getItemDisplayName(itemType)
+            elseif kind == "money" then
+                parts[#parts + 1] = "$" .. tostring(math.floor(tonumber(reward.amount) or 0))
+            elseif kind == "reputation" then
+                local amount = math.floor(tonumber(reward.amount) or 0)
+                parts[#parts + 1] = (amount > 0 and "+" or "") .. tostring(amount) .. " rep"
+            elseif reward.previewText and tostring(reward.previewText) ~= "" then
+                parts[#parts + 1] = tostring(reward.previewText)
+            end
+        end
+    end
+    return #parts > 0 and table.concat(parts, ", ") or ""
+end
+
+local function firstNonEmptyText(primary, fallback)
+    local primaryText = primary and tostring(primary) or ""
+    if primaryText ~= "" then
+        return primaryText
+    end
+    local fallbackText = fallback and tostring(fallback) or ""
+    return fallbackText
+end
+
+local function cleanDisplayText(text, rawID, displayName)
+    local value = tostring(text or "")
+    local raw = rawID and tostring(rawID) or ""
+    local name = displayName and tostring(displayName) or ""
+    if value == "" then
+        return value
+    end
+    if raw ~= "" and name ~= "" and raw ~= name then
+        value = value:gsub(raw:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"), name)
+    end
+    return value
 end
 
 local function getRosterData()
@@ -104,7 +237,7 @@ local function buildRadioQuestTraderContexts(player)
                             name = tostring(soul.name or "Radio Contact"),
                             archetype = tostring(soul.archetypeID or soul.archetype or soul.occupation or "General"),
                             factionID = soul.factionID and tostring(soul.factionID) or nil,
-                            factionName = soul.factionName,
+                            factionName = resolveFactionDisplayName(soul.factionID, soul.factionName),
                             currentState = status == "Trading" and "Trading" or (state == "Trading" and "Trading" or "Resting"),
                             status = status == "Trading" and "Trading" or (state == "Trading" and "Trading" or "Resting"),
                             pickupLocation = pickupLocation,
@@ -146,18 +279,17 @@ local function buildGenericQuestScannerEntry(player, quest)
     local detail = DO.Quests and DO.Quests.GetQuestDetailData and DO.Quests.GetQuestDetailData(player, quest.id) or nil
     local dist = math.sqrt(((marker.x or 0) - player:getX()) ^ 2 + ((marker.y or 0) - player:getY()) ^ 2)
     local remainingHours = detail and tonumber(detail.timeRemainingHours) or nil
-    local expireText = remainingHours ~= nil and string.format("Expires in %.1fh", math.max(0, remainingHours))
-        or (detail and detail.rewardPreview and ("Rewards: " .. tostring(detail.rewardPreview)))
-        or (detail and detail.currentObjectiveLabel)
-        or ""
+    local factionID = (detail and detail.giverFactionID) or quest.giverFactionID or quest.factionID or nil
+    local factionName = resolveFactionDisplayName(factionID, (detail and detail.giverFactionName) or quest.giverFactionName or "Objective")
+    local rewardText = firstNonEmptyText(buildRewardTextFromRewards(quest.rewards), detail and detail.rewardPreview)
 
     return {
         uuid = tostring(quest.id),
         questID = tostring(quest.id),
         entryKind = "activeQuest",
-        name = tostring((detail and (detail.title or detail.name)) or quest.title or quest.name or quest.id),
-        faction = (detail and detail.giverFactionID) or quest.giverFactionID or quest.factionID or nil,
-        factionName = (detail and detail.giverFactionName) or quest.giverFactionName or "Objective",
+        name = cleanDisplayText((detail and (detail.title or detail.name)) or quest.title or quest.name or quest.id, factionID, factionName),
+        faction = factionID,
+        factionName = factionName,
         archetype = (detail and detail.giverTitle) or "Quest",
         gender = "Unknown",
         identitySeed = 1,
@@ -165,7 +297,8 @@ local function buildGenericQuestScannerEntry(player, quest)
         y = marker.y,
         z = marker.z,
         distText = string.format("Objective: %.0fm", dist),
-        expireText = expireText,
+        expireText = remainingHours ~= nil and formatHoursLabel("Expires", remainingHours) or "",
+        rewardText = rewardText,
         isLive = false,
         canLock = false,
         locked = false,
@@ -188,11 +321,9 @@ local function buildAvailableOfferScannerEntry(player, traderContext, offer)
 
     local dist = math.sqrt(((target.x or 0) - player:getX()) ^ 2 + ((target.y or 0) - player:getY()) ^ 2)
     local remainingBoardHours = tonumber(offer.boardExpiresAtWorldHours) and math.max(0, tonumber(offer.boardExpiresAtWorldHours) - getWorldAgeHours()) or nil
-    local rewardText = spec and spec.rewardPreview and tostring(spec.rewardPreview) or nil
-    local expireText = remainingBoardHours and string.format("Board %.1fh", remainingBoardHours) or "Available today"
-    if rewardText and rewardText ~= "" then
-        expireText = expireText .. " | " .. rewardText
-    end
+    local factionID = traderContext.factionID
+    local factionName = resolveFactionDisplayName(factionID, traderContext.factionName or traderContext.faction)
+    local rewardText = firstNonEmptyText(buildRewardTextFromRewards(spec and spec.rewards), spec and spec.rewardPreview)
 
     local blueprintID = tostring(offer.blueprintId or (spec and spec.blueprintId) or "")
     local traderID = tostring(traderContext.traderID or traderContext.id or "radio")
@@ -200,9 +331,9 @@ local function buildAvailableOfferScannerEntry(player, traderContext, offer)
         uuid = "DOOffer_" .. traderID .. "_" .. blueprintID,
         entryKind = "availableQuest",
         offerBlueprintId = blueprintID,
-        name = tostring(offer.menuLabel or (spec and (spec.title or spec.name)) or "Available Quest"),
-        faction = traderContext.factionID,
-        factionName = traderContext.factionName or traderContext.factionID or "Quest Board",
+        name = cleanDisplayText(offer.menuLabel or (spec and (spec.title or spec.name)) or "Available Quest", factionID, factionName),
+        faction = factionID,
+        factionName = factionName,
         archetype = tostring(traderContext.archetype or "Quest Contact"),
         gender = "Unknown",
         identitySeed = 1,
@@ -210,7 +341,8 @@ local function buildAvailableOfferScannerEntry(player, traderContext, offer)
         y = target.y,
         z = target.z,
         distText = (spec and spec.pickupLocation) and string.format("Pickup: %.0fm", dist) or string.format("Objective: %.0fm", dist),
-        expireText = expireText,
+        expireText = remainingBoardHours and formatHoursLabel("Board", remainingBoardHours) or "Available today",
+        rewardText = rewardText,
         isLive = false,
         canLock = false,
         locked = false,

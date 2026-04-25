@@ -142,6 +142,10 @@ local function isWithinRadius(location, radius, x, y, z)
 end
 
 local function objectivesComplete(quest)
+    if type(quest) ~= "table" or type(quest.objectives) ~= "table" or #quest.objectives == 0 then
+        return false
+    end
+
     for _, objective in ipairs(quest.objectives or {}) do
         if objective.completed ~= true then
             return false

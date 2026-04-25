@@ -148,7 +148,12 @@ function Quests.ValidateDelivery(item, requiredQuestID)
     end
 
     local modData = item:getModData()
-    return modData and modData.IsQuestItem == true and modData.QuestID == requiredQuestID
+    if not modData then
+        return false
+    end
+
+    return (modData.IsQuestItem == true and modData.QuestID == requiredQuestID)
+        or (modData.DOQuestDrop == true and modData.DOQuestID == requiredQuestID)
 end
 
 function Quests.RemoveInventoryItem(item)

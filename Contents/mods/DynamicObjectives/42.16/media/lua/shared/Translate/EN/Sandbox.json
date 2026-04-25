@@ -11,5 +11,13 @@
     "Sandbox_DynamicObjectives.EscortIncidentChancePercent": "Escort Extra Chance (%)",
     "Sandbox_DynamicObjectives.EscortIncidentChancePercent_tooltip": "After the minimum escort incident floor is satisfied, this percent chance adds one extra pending escort incident when eligible traders exist.",
     "Sandbox_DynamicObjectives.MinimumEscortIncidents": "Minimum Escort Incidents",
-    "Sandbox_DynamicObjectives.MinimumEscortIncidents_tooltip": "Guarantees at least this many pending escort incidents when eligible traders and rescue sites exist. If the floor cannot be met, debug logs explain why."
+    "Sandbox_DynamicObjectives.MinimumEscortIncidents_tooltip": "Guarantees at least this many pending escort incidents when eligible traders and rescue sites exist. If the floor cannot be met, debug logs explain why.",
+    "Sandbox_DynamicObjectives.QuestRewardPoolWeapons": "Quest Rewards: Weapons",
+    "Sandbox_DynamicObjectives.QuestRewardPoolWeapons_tooltip": "Allows Dynamic Objectives procedural quest rewards to include weapon items from the Dynamic Trading item registry.",
+    "Sandbox_DynamicObjectives.QuestRewardPoolMedicine": "Quest Rewards: Medicine",
+    "Sandbox_DynamicObjectives.QuestRewardPoolMedicine_tooltip": "Allows Dynamic Objectives procedural quest rewards to include medicine and medical-tool items from the Dynamic Trading item registry.",
+    "Sandbox_DynamicObjectives.QuestRewardPoolFoods": "Quest Rewards: Foods",
+    "Sandbox_DynamicObjectives.QuestRewardPoolFoods_tooltip": "Allows Dynamic Objectives procedural quest rewards to include food and drink items from the Dynamic Trading item registry.",
+    "Sandbox_DynamicObjectives.QuestRewardPoolBags": "Quest Rewards: Bags",
+    "Sandbox_DynamicObjectives.QuestRewardPoolBags_tooltip": "Allows Dynamic Objectives procedural quest rewards to include bag and backpack items from the Dynamic Trading item registry."
 }

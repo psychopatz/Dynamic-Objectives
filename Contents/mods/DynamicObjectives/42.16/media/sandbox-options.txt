@@ -59,3 +59,35 @@ option DynamicObjectives.MinimumEscortIncidents
     page = DynamicObjectives,
     translation = DynamicObjectives.MinimumEscortIncidents,
 }
+
+option DynamicObjectives.QuestRewardPoolWeapons
+{
+    type = boolean,
+    default = true,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestRewardPoolWeapons,
+}
+
+option DynamicObjectives.QuestRewardPoolMedicine
+{
+    type = boolean,
+    default = true,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestRewardPoolMedicine,
+}
+
+option DynamicObjectives.QuestRewardPoolFoods
+{
+    type = boolean,
+    default = true,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestRewardPoolFoods,
+}
+
+option DynamicObjectives.QuestRewardPoolBags
+{
+    type = boolean,
+    default = true,
+    page = DynamicObjectives,
+    translation = DynamicObjectives.QuestRewardPoolBags,
+}

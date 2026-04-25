@@ -3,6 +3,8 @@ DynamicObjectives.Quests = DynamicObjectives.Quests or {}
 
 local DO = DynamicObjectives
 local Quests = DO.Quests
+Quests.Runtime = Quests.Runtime or {}
+local Runtime = Quests.Runtime
 
 local HOOK_ID = "TraderNeeds.HelpEscort"
 local WORLD_KEY = "DynamicObjectives_HookWorld"
@@ -866,7 +868,12 @@ local function buildEscortRefreshTarget()
     local roll = nil
 
     if minimum < 3 then
-        passed, roll = Runtime.rollChancePercent(chance)
+        if Runtime.rollChancePercent then
+            passed, roll = Runtime.rollChancePercent(chance)
+        else
+            roll = ZombRand(0, 100)
+            passed = roll < chance
+        end
         if passed then
             bonus = 1
         end

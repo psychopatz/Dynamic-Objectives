@@ -60,37 +60,6 @@ local THEME_REGISTRY = {
     },
 }
 
-local REWARD_PROFILES = {
-    courier_default = {
-        baseBudget = 320,
-        cashShareMin = 0.25,
-        cashShareMax = 0.45,
-        premium = false,
-        preferredTags = { "Food.NonPerishable", "Medical.General", "Food.Drink.Water", "Clothing.Accessory.Utility", "Tool.General" },
-    },
-    killzone_default = {
-        baseBudget = 260,
-        cashShareMin = 0.10,
-        cashShareMax = 0.30,
-        premium = false,
-        preferredTags = { "Medical.General", "Weapon.Ranged", "Weapon.Ranged.Ammo", "Weapon.Melee", "Theme.Combat" },
-    },
-    huntdrop_default = {
-        baseBudget = 300,
-        cashShareMin = 0.15,
-        cashShareMax = 0.35,
-        premium = false,
-        preferredTags = { "Medical.General", "Misc.General", "Tool.General", "Electronics", "Resource.Material.General" },
-    },
-    escort_default = {
-        baseBudget = 240,
-        cashShareMin = 0.35,
-        cashShareMax = 0.60,
-        premium = false,
-        preferredTags = { "Medical.General", "Building.Survival", "Weapon.Melee", "Clothing.Accessory.Utility" },
-    },
-}
-
 local FAMILY_LABELS = {
     Courier = "Courier",
     KillZone = "Sweep",
@@ -257,29 +226,6 @@ local function chooseFromList(list)
     return index and list[index] or nil
 end
 
-local function randomRatio(minValue, maxValue)
-    local low = tonumber(minValue) or 0
-    local high = tonumber(maxValue) or low
-    if high < low then
-        low, high = high, low
-    end
-    if math.abs(high - low) <= 0.0001 then
-        return low
-    end
-    return low + ((ZombRand(0, 10001) / 10000) * (high - low))
-end
-
-local function buildTagSet(tags)
-    local set = {}
-    for _, tag in ipairs(type(tags) == "table" and tags or {}) do
-        local key = normalizeText(tag)
-        if key ~= "" then
-            set[key] = true
-        end
-    end
-    return set
-end
-
 local function itemMatchesTag(itemTags, targetTag)
     local probe = normalizeText(targetTag)
     if probe == "" then
@@ -328,17 +274,56 @@ local function getIndependentFactionName()
     return "Independent"
 end
 
+local function humanizeID(value)
+    local text = tostring(value or "")
+    text = text:gsub("_%d+$", "")
+    text = text:gsub("[%_%-]+", " ")
+    text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+        return nil
+    end
+    return (text:gsub("(%a)([%w']*)", function(first, rest)
+        return string.upper(first) .. string.lower(rest)
+    end))
+end
+
+local function resolveFactionDisplayName(factionID, fallback)
+    local id = factionID and tostring(factionID) or nil
+    if id and id ~= "" and DynamicTrading_Factions and DynamicTrading_Factions.GetFaction then
+        local ok, faction = pcall(function()
+            return DynamicTrading_Factions.GetFaction(id)
+        end)
+        if ok and type(faction) == "table" and faction.name and tostring(faction.name) ~= "" then
+            return tostring(faction.name)
+        end
+    end
+
+    if id and id ~= "" and ModData and ModData.get then
+        local factionData = ModData.get("DynamicTrading_Factions")
+        local faction = type(factionData) == "table" and factionData[id] or nil
+        if type(faction) == "table" and faction.name and tostring(faction.name) ~= "" then
+            return tostring(faction.name)
+        end
+    end
+
+    local fallbackText = fallback and tostring(fallback) or ""
+    if fallbackText ~= "" and fallbackText ~= id then
+        return fallbackText
+    end
+
+    return humanizeID(id) or humanizeID(fallbackText) or getIndependentFactionName()
+end
+
 local function resolveGiverContext(traderContext, overrides)
     traderContext = type(traderContext) == "table" and traderContext or {}
     overrides = type(overrides) == "table" and overrides or {}
 
     local archetypeID = overrides.archetypeID or traderContext.archetype or traderContext.role or "General"
     local factionID = overrides.factionID or traderContext.factionID or traderContext.factionId or nil
-    local factionName = overrides.factionName
-        or traderContext.factionName
-        or traderContext.faction
-        or (factionID and tostring(factionID))
-        or getIndependentFactionName()
+    local factionName = resolveFactionDisplayName(
+        factionID,
+        overrides.factionName or traderContext.factionName or traderContext.faction
+    )
     local giverName = overrides.giverName or traderContext.displayName or traderContext.name or traderContext.traderName or "Contract Broker"
     local giverTitle = overrides.giverTitle or getArchetypeLabel(archetypeID)
 
@@ -396,6 +381,7 @@ local function buildContextSignature(giver, extra)
         tostring(extra.blueprintId or extra.hookId or "none"),
         tostring(extra.routeBucket or "none"),
         tostring(extra.objectiveSeed or "none"),
+        tostring(extra.rewardTableVersion or "none"),
     }, "|")
 end
 
@@ -473,146 +459,10 @@ local function pickWeightedEntry(entries)
 end
 
 local function getProfile(profileID)
-    return REWARD_PROFILES[tostring(profileID or "")] or REWARD_PROFILES.courier_default
-end
-
-local function getEffectiveItemPrice(itemKey, itemData)
-    if not itemData then
-        return 0
+    if Runtime.getProceduralRewardProfile then
+        return Runtime.getProceduralRewardProfile(profileID)
     end
-    if DynamicTrading and DynamicTrading.PriceConfig and DynamicTrading.PriceConfig.GetEffectiveBasePrice then
-        return math.max(0, math.floor(tonumber(DynamicTrading.PriceConfig.GetEffectiveBasePrice(itemKey, itemData)) or 0))
-    end
-    return math.max(0, math.floor(tonumber(itemData.basePrice) or 0))
-end
-
-local function itemAllowedForArchetype(itemData, archetype)
-    local tags = itemData and itemData.tags or nil
-    if itemData == nil or type(tags) ~= "table" or #tags == 0 then
-        return false
-    end
-
-    if itemMatchesTag(tags, "Quality.Waste") then
-        return false
-    end
-
-    for _, forbid in ipairs(archetype and archetype.forbid or {}) do
-        if itemMatchesTag(tags, forbid) then
-            return false
-        end
-    end
-
-    return true
-end
-
-local function buildCandidateList(archetype, theme, profile, budget)
-    local masterList = DynamicTrading and DynamicTrading.Config and DynamicTrading.Config.MasterList or nil
-    if type(masterList) ~= "table" then
-        return {}
-    end
-
-    local candidates = {}
-    for itemKey, itemData in pairs(masterList) do
-        local itemType = itemData and tostring(itemData.item or itemKey or "") or ""
-        if itemType ~= ""
-            and itemType ~= "Base.Money"
-            and itemType ~= "Base.MoneyBundle"
-            and itemAllowedForArchetype(itemData, archetype)
-        then
-            local price = getEffectiveItemPrice(itemKey, itemData)
-            if price > 0 and price <= math.max(1, math.floor((tonumber(budget) or 0) * 1.1)) then
-                local themeMatches = countTagMatches(itemData.tags, theme.preferredTags)
-                local profileMatches = countTagMatches(itemData.tags, profile.preferredTags)
-                local expertMatches = countTagMatches(itemData.tags, archetype and archetype.expertTags or nil)
-                local allocationMatches = 0
-                for _, allocation in ipairs(archetype and archetype.allocations or {}) do
-                    allocationMatches = allocationMatches + countTagMatches(itemData.tags, allocation.tags)
-                end
-
-                local score = 1.0
-                    + (themeMatches * 1.6)
-                    + (profileMatches * 1.25)
-                    + (expertMatches * 1.15)
-                    + (allocationMatches * 0.75)
-
-                if themeMatches > 0 or profileMatches > 0 or expertMatches > 0 or allocationMatches > 0 then
-                    candidates[#candidates + 1] = {
-                        itemType = itemType,
-                        itemKey = itemKey,
-                        itemData = itemData,
-                        tags = deepCopy(itemData.tags or {}),
-                        price = price,
-                        weight = math.max(0.1, score),
-                    }
-                end
-            end
-        end
-    end
-
-    return candidates
-end
-
-local function pickRewardItems(candidates, budget, profile)
-    local selected = {}
-    local picked = {}
-    local remaining = math.max(0, math.floor(tonumber(budget) or 0))
-    local premium = profile and profile.premium == true
-    local attempts = 0
-    local totalValue = 0
-
-    while remaining > 0 and attempts < 12 do
-        attempts = attempts + 1
-        local pool = {}
-
-        for _, candidate in ipairs(candidates or {}) do
-            if not picked[candidate.itemType] then
-                local rejectLarge = premium ~= true and candidate.price > math.max(1, math.floor(remaining * 0.60))
-                if candidate.price <= remaining and not rejectLarge then
-                    pool[#pool + 1] = candidate
-                end
-            end
-        end
-
-        if #pool == 0 then
-            break
-        end
-
-        local chosen = pickWeightedEntry(pool)
-        if not chosen then
-            break
-        end
-
-        selected[#selected + 1] = {
-            kind = "item",
-            itemType = chosen.itemType,
-            count = 1,
-        }
-        picked[chosen.itemType] = true
-        remaining = math.max(0, remaining - chosen.price)
-        totalValue = totalValue + chosen.price
-    end
-
-    return selected, totalValue, remaining
-end
-
-local function buildRewardTags(themeID, itemRewards, candidatesByType)
-    local tags = {}
-    local seen = {}
-    if themeID and themeID ~= "" then
-        tags[#tags + 1] = tostring(themeID)
-        seen[tostring(themeID)] = true
-    end
-
-    for _, reward in ipairs(itemRewards or {}) do
-        local candidate = candidatesByType and candidatesByType[tostring(reward.itemType)] or nil
-        local tag = candidate and candidate.tags and candidate.tags[1] or nil
-        if tag and not seen[tag] then
-            seen[tag] = true
-            tags[#tags + 1] = tostring(tag)
-        end
-    end
-
-    return tags
+    return { preferredTags = {}, cashMin = 0, cashMax = 0, itemRollsMin = 1, itemRollsMax = 1 }
 end
 
 local function buildHistorySignature(family, themeID, rewardTags)
@@ -665,52 +515,31 @@ local function buildIdentity(family, themeID, giver)
 end
 
 local function buildProceduralRewards(request, themeID)
-    local profile = getProfile(request.profileID)
     local giver = request.giver
     local archetype = getArchetype(giver and giver.archetypeID)
-    local difficulty = Runtime.normalizeDifficulty(request.difficulty or 1.0)
-    local hookFactor = tonumber(request.budgetFactor) or 1.0
-    local targetBudget = math.max(1, math.floor((tonumber(profile.baseBudget) or 0) * difficulty * hookFactor + 0.5))
-    local cashShare = randomRatio(profile.cashShareMin, profile.cashShareMax)
-    local cashAmount = math.max(0, math.floor((targetBudget * cashShare) + 0.5))
-    local itemBudget = math.max(0, targetBudget - cashAmount)
-    local theme = getTheme(themeID)
-    local candidates = buildCandidateList(archetype, theme, profile, targetBudget)
-    local itemRewards, itemValue, remainder = pickRewardItems(candidates, itemBudget, profile)
-    cashAmount = cashAmount + remainder
+    local theme = deepCopy(getTheme(themeID))
+    theme.id = tostring(themeID or "mixed")
 
-    local candidateByType = {}
-    for _, candidate in ipairs(candidates) do
-        candidateByType[tostring(candidate.itemType)] = candidate
+    if Runtime.buildProceduralRewardData then
+        return Runtime.buildProceduralRewardData({
+            profileID = request.profileID,
+            family = request.family,
+            giver = giver,
+            archetype = archetype,
+            themeID = themeID,
+            theme = theme,
+            difficulty = request.difficulty,
+            allowCash = request.allowCash,
+            allowReputation = request.allowReputation,
+        })
     end
 
-    local rewards = {}
-    for _, reward in ipairs(itemRewards) do
-        rewards[#rewards + 1] = reward
-    end
-    if request.allowCash ~= false and cashAmount > 0 then
-        rewards[#rewards + 1] = {
-            kind = "money",
-            amount = cashAmount,
-        }
-    end
-
-    if request.allowReputation == true and giver and giver.giverFactionID then
-        rewards[#rewards + 1] = {
-            kind = "reputation",
-            amount = math.max(2, math.floor((difficulty * 2.2) + 2.5)),
-            factionID = giver.giverFactionID,
-            factionName = giver.giverFactionName,
-        }
-    end
-
-    local rewardTags = buildRewardTags(themeID, itemRewards, candidateByType)
     return {
-        targetBudget = targetBudget,
-        actualValue = itemValue + cashAmount,
-        rewards = rewards,
-        rewardTags = rewardTags,
-        signature = buildHistorySignature(request.family, themeID, rewardTags),
+        targetValue = 0,
+        actualValue = 0,
+        rewards = {},
+        rewardTags = { tostring(themeID or "mixed") },
+        signature = buildHistorySignature(request.family, themeID, { themeID }),
     }
 end
 
@@ -726,9 +555,12 @@ local function applyGeneratedFields(spec, request, themeID, rewardData)
     spec.giverFactionID = giver.giverFactionID
     spec.giverFactionName = giver.giverFactionName
     spec.themeID = tostring(themeID)
-    spec.budgetValue = tonumber(rewardData.targetBudget) or 0
+    local rewardValue = tonumber(rewardData.actualValue or rewardData.targetValue or rewardData.targetBudget) or 0
+    spec.budgetValue = rewardValue
+    spec.rewardValue = rewardValue
     spec.rewardTags = deepCopy(rewardData.rewardTags or {})
     spec.rewards = deepCopy(rewardData.rewards or {})
+    spec.rewardPreview = rewardData.previewText or spec.rewardPreview
     spec.rewardContext = spec.rewardContext or {}
     spec.rewardContext.factionID = spec.rewardContext.factionID or giver.giverFactionID
     spec.rewardContext.factionName = spec.rewardContext.factionName or giver.giverFactionName
@@ -764,10 +596,6 @@ local function precomputeDifficulty(player, spec)
     spec.precomputedDifficulty = true
     spec.difficultyLabel = Runtime.getQuestDifficultyLabel(difficulty)
     return difficulty, factors
-end
-
-function Runtime.getProceduralRewardProfile(profileID)
-    return getProfile(profileID)
 end
 
 function Runtime.isProceduralGenerationEnabled(blueprint)
@@ -834,6 +662,7 @@ function Runtime.buildProceduralBlueprintSpec(player, store, traderContext, blue
     }, ":")
     local contextSignature = buildContextSignature(giver, {
         blueprintId = blueprint.id,
+        rewardTableVersion = Runtime.getProceduralRewardTableVersion and Runtime.getProceduralRewardTableVersion() or 0,
     })
     local profileID = generation.rewardProfile or ({
         Courier = "courier_default",
@@ -857,7 +686,6 @@ function Runtime.buildProceduralBlueprintSpec(player, store, traderContext, blue
             family = blueprint.family,
             giver = giver,
             difficulty = spec.difficulty,
-            budgetFactor = overrides and overrides.budgetFactor or blueprint.rewardFactor or 1.0,
             allowCash = generation.allowProceduralCash ~= false,
             allowReputation = generation.allowProceduralReputation == true,
         }, "mixed")
@@ -867,7 +695,6 @@ function Runtime.buildProceduralBlueprintSpec(player, store, traderContext, blue
             family = blueprint.family,
             giver = giver,
             difficulty = spec.difficulty,
-            budgetFactor = overrides and overrides.budgetFactor or blueprint.rewardFactor or 1.0,
             allowCash = generation.allowProceduralCash ~= false,
             allowReputation = generation.allowProceduralReputation == true,
         }, themeID)
@@ -887,7 +714,6 @@ function Runtime.buildProceduralEscortSpec(player, store, incident, buildBaseSpe
     end
 
     local routeDistance = math.max(0, tonumber(incident.routeDistance) or 0)
-    local budgetFactor = math.max(1.0, 1.0 + (routeDistance / 1200))
     local giver = resolveGiverContext({
         traderID = incident.traderId,
         displayName = incident.traderName,
@@ -908,6 +734,7 @@ function Runtime.buildProceduralEscortSpec(player, store, incident, buildBaseSpe
         hookId = "TraderNeeds.HelpEscort",
         routeBucket = math.floor(routeDistance / 50),
         objectiveSeed = incident.questId or incident.incidentId,
+        rewardTableVersion = Runtime.getProceduralRewardTableVersion and Runtime.getProceduralRewardTableVersion() or 0,
     })
 
     return Runtime.resolveProceduralOfferSpec(player, store, cacheKey, contextSignature, DEFAULT_TTL_HOURS, function(history)
@@ -927,7 +754,6 @@ function Runtime.buildProceduralEscortSpec(player, store, incident, buildBaseSpe
             family = "Escort",
             giver = giver,
             difficulty = spec.difficulty,
-            budgetFactor = budgetFactor,
             allowCash = true,
             allowReputation = giver.giverFactionID ~= nil,
         }, "mixed")
@@ -937,7 +763,6 @@ function Runtime.buildProceduralEscortSpec(player, store, incident, buildBaseSpe
             family = "Escort",
             giver = giver,
             difficulty = spec.difficulty,
-            budgetFactor = budgetFactor,
             allowCash = true,
             allowReputation = giver.giverFactionID ~= nil,
         }, themeID)
@@ -992,11 +817,11 @@ function Quests.DebugSampleProceduralOffers(player, archetypeID, iterations)
                         "Quest",
                         "Procedural",
                         string.format(
-                            "%s [%s] theme=%s budget=%s rewards=%s tags=%s",
+                            "%s [%s] theme=%s value=%s rewards=%s tags=%s",
                             tostring(spec.title or spec.name or blueprint.id),
                             tostring(archetypeID or "General"),
                             tostring(spec.themeID or "mixed"),
-                            tostring(spec.budgetValue or 0),
+                            tostring(spec.rewardValue or spec.budgetValue or 0),
                             tostring(spec.rewardPreview or "none"),
                             table.concat(spec.rewardTags or {}, ",")
                         )
