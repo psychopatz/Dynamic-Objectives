@@ -100,6 +100,8 @@ local function buildObjectiveLines(quest, zoneState)
             end
         elseif objective.type == "deliverItem" then
             line.value = objective.completed == true and "Delivered" or "Take the objective item to the marker"
+        elseif objective.type == "claimRewards" then
+            line.value = objective.completed == true and "Rewards claimed" or "Meet the contact and collect your payout"
         elseif objective.type == "pickupItem" then
             line.value = objective.completed == true and "Picked up" or "Go to the sender and collect the package"
         elseif objective.type == "escortTarget" then

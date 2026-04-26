@@ -6,6 +6,344 @@ local Quests = DO.Quests
 Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
+local CLAIM_REWARDS_OBJECTIVE_ID = "claim_rewards"
+
+local function hasClaimableRewards(quest)
+    if type(quest) ~= "table" or type(quest.rewards) ~= "table" then
+        return false
+    end
+
+    for _, reward in ipairs(quest.rewards) do
+        if type(reward) == "table" then
+            local kind = tostring(reward.kind or reward.type or ""):lower()
+            if kind == "item" or kind == "money" or kind == "reputation" then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function getRewardClaimObjective(quest)
+    for _, objective in ipairs(quest and quest.objectives or {}) do
+        if objective.type == "claimRewards" or objective.id == CLAIM_REWARDS_OBJECTIVE_ID then
+            return objective
+        end
+    end
+    return nil
+end
+
+local function isAwaitingRewardClaim(quest)
+    local objective = getRewardClaimObjective(quest)
+    return objective ~= nil and objective.completed ~= true
+end
+
+local function getRosterData()
+    if DT_V2_RadarManager and type(DT_V2_RadarManager.ClientRoster) == "table" then
+        return DT_V2_RadarManager.ClientRoster
+    end
+    return ModData and ModData.get and ModData.get("DynamicTrading_Roster") or nil
+end
+
+local function getSoul(uuid)
+    if not uuid or tostring(uuid) == "" then
+        return nil
+    end
+
+    if DynamicTrading_Roster and DynamicTrading_Roster.GetSoul then
+        local soul = DynamicTrading_Roster.GetSoul(tostring(uuid))
+        if soul then
+            return soul
+        end
+    end
+
+    local roster = getRosterData()
+    return roster and roster.Souls and roster.Souls[tostring(uuid)] or nil
+end
+
+local function isSoulAlive(soul)
+    if type(soul) ~= "table" then
+        return false
+    end
+
+    local status = tostring(soul.status or "")
+    local state = tostring(soul.state or "")
+    return status ~= "Dead" and state ~= "Dead" and soul.dead ~= true and soul.isDead ~= true
+end
+
+local function isLiveNPCDead(uuid)
+    local id = uuid and tostring(uuid) or ""
+    if id == "" then
+        return false
+    end
+
+    local zombie = DTNPCClient and DTNPCClient.FindZombieByUUID and DTNPCClient.FindZombieByUUID(id) or nil
+    if zombie and zombie.isDead and zombie:isDead() then
+        return true
+    end
+
+    local npcData = nil
+    if zombie and DTNPC and DTNPC.GetData then
+        npcData = DTNPC.GetData(zombie)
+    end
+    npcData = npcData or (DTNPCClient and DTNPCClient.NPCCache and DTNPCClient.NPCCache[id] and DTNPCClient.NPCCache[id].npcData) or nil
+    npcData = npcData or (DTNPCClient and DTNPCClient.MetadataCache and DTNPCClient.MetadataCache[id]) or nil
+    return npcData and tostring(npcData.status or "") == "Dead" or false
+end
+
+local function buildRewardContactLocation(raw, fallbackLabel)
+    if type(raw) ~= "table" then
+        return nil
+    end
+
+    local location = Runtime.normalizeLocation({
+        x = raw.x,
+        y = raw.y,
+        z = raw.z,
+        label = raw.label or raw.name or fallbackLabel or "Reward Contact",
+        radius = raw.radius or 8,
+        symbolID = raw.symbolID or "DOQuestTurnIn",
+        worldIcon = raw.worldIcon or "friend.png",
+        r = raw.r or 0.25,
+        g = raw.g or 0.85,
+        b = raw.b or 1.0,
+        a = raw.a or 1.0,
+        scale = raw.scale or 1.0,
+    })
+    return location
+end
+
+local function getSoulLocation(soul, fallbackLabel)
+    if type(soul) ~= "table" then
+        return nil
+    end
+
+    local name = tostring(soul.name or fallbackLabel or "Reward Contact")
+    return buildRewardContactLocation({
+        x = soul.lastX or soul.x,
+        y = soul.lastY or soul.y,
+        z = soul.lastZ or soul.z,
+        label = name,
+    }, name) or buildRewardContactLocation(soul.homeCoords, name .. "'s Camp")
+end
+
+local function getQuestFactionID(quest)
+    local source = quest and quest.sourceTrader or nil
+    local context = quest and quest.rewardContext or nil
+    local value = quest and (quest.giverFactionID or quest.factionID)
+        or nil
+    value = value or (source and (source.factionID or source.factionId))
+    value = value or (context and (context.factionID or context.factionId))
+    value = value and tostring(value) or ""
+    return value ~= "" and value or nil
+end
+
+local function getQuestOriginalTraderID(quest)
+    local source = quest and quest.sourceTrader or nil
+    local value = source and (source.traderID or source.id or source.uuid) or nil
+    value = value and tostring(value) or ""
+    return value ~= "" and value or nil
+end
+
+local function buildContact(uuid, soul, delegated)
+    if not isSoulAlive(soul) or isLiveNPCDead(uuid or soul.uuid) then
+        return nil
+    end
+
+    local name = tostring(soul.name or "Reward Contact")
+    local location = getSoulLocation(soul, name)
+    if not location then
+        return nil
+    end
+
+    return {
+        uuid = tostring(uuid or soul.uuid or ""),
+        name = name,
+        factionID = soul.factionID and tostring(soul.factionID) or nil,
+        location = location,
+        delegated = delegated == true,
+    }
+end
+
+local function findFactionRewardDelegate(quest, skipTraderID)
+    local factionID = getQuestFactionID(quest)
+    if not factionID then
+        return nil
+    end
+
+    local roster = getRosterData()
+    local souls = roster and roster.Souls or nil
+    if type(souls) ~= "table" then
+        return nil
+    end
+
+    local members = roster.FactionMembers and roster.FactionMembers[factionID] or nil
+    if type(members) == "table" then
+        for _, uuid in ipairs(members) do
+            local id = tostring(uuid or "")
+            if id ~= "" and id ~= tostring(skipTraderID or "") then
+                local contact = buildContact(id, getSoul(id) or souls[id], true)
+                if contact then
+                    return contact
+                end
+            end
+        end
+    end
+
+    for uuid, soul in pairs(souls) do
+        local id = tostring(uuid or "")
+        if id ~= "" and id ~= tostring(skipTraderID or "") and tostring(soul.factionID or "") == factionID then
+            local contact = buildContact(id, getSoul(id) or soul, true)
+            if contact then
+                return contact
+            end
+        end
+    end
+
+    return nil
+end
+
+local function resolveRewardContact(quest, currentContactID)
+    local originalID = getQuestOriginalTraderID(quest)
+    local currentID = currentContactID and tostring(currentContactID) or ""
+
+    if currentID ~= "" then
+        local current = buildContact(currentID, getSoul(currentID), currentID ~= tostring(originalID or ""))
+        if current then
+            return current
+        end
+    end
+
+    if originalID then
+        local original = buildContact(originalID, getSoul(originalID), false)
+        if original then
+            return original
+        end
+
+        local delegate = findFactionRewardDelegate(quest, originalID)
+        if delegate then
+            return delegate
+        end
+
+        local roster = getRosterData()
+        local source = quest and quest.sourceTrader or nil
+        local fallbackName = tostring(source and (source.displayName or source.name) or "Reward Contact")
+        local fallbackLocation = buildRewardContactLocation(
+            source and (source.pickupLocation or source.location or source.targetLocation),
+            fallbackName
+        )
+        if fallbackLocation and (not getQuestFactionID(quest) or not (roster and type(roster.Souls) == "table")) then
+            return {
+                uuid = originalID,
+                name = fallbackName,
+                factionID = getQuestFactionID(quest),
+                location = fallbackLocation,
+                delegated = false,
+            }
+        end
+        return nil
+    end
+
+    local source = quest and quest.sourceTrader or nil
+    local fallbackName = tostring(source and (source.displayName or source.name) or "Reward Contact")
+    local fallbackLocation = buildRewardContactLocation(
+        source and (source.pickupLocation or source.location or source.targetLocation),
+        fallbackName
+    )
+    if fallbackLocation then
+        return {
+            uuid = "",
+            name = fallbackName,
+            factionID = getQuestFactionID(quest),
+            location = fallbackLocation,
+            delegated = false,
+        }
+    end
+
+    return findFactionRewardDelegate(quest, nil)
+end
+
+local function ensureRewardClaimObjective(player, quest)
+    if not hasClaimableRewards(quest) then
+        return true, false
+    end
+
+    local objective = getRewardClaimObjective(quest)
+    if objective and objective.completed == true then
+        return true, false
+    end
+
+    local contact = resolveRewardContact(quest, objective and objective.rewardContactID or nil)
+    if not contact then
+        return false, false
+    end
+
+    local label = "Claim rewards from " .. tostring(contact.name)
+    if contact.delegated == true then
+        label = "Claim delegated rewards from " .. tostring(contact.name)
+    end
+
+    if objective then
+        local previousLocation = objective.targetLocation
+        local changed = objective.label ~= label
+            or tostring(objective.rewardContactID or "") ~= tostring(contact.uuid or "")
+            or tostring(objective.rewardContactName or "") ~= tostring(contact.name or "")
+            or objective.rewardDelegated ~= (contact.delegated == true)
+            or not previousLocation
+            or tonumber(previousLocation.x) ~= tonumber(contact.location and contact.location.x)
+            or tonumber(previousLocation.y) ~= tonumber(contact.location and contact.location.y)
+            or tonumber(previousLocation.z or 0) ~= tonumber(contact.location and contact.location.z or 0)
+        objective.label = label
+        objective.rewardContactID = contact.uuid
+        objective.rewardContactName = contact.name
+        objective.rewardDelegated = contact.delegated == true
+        objective.targetLocation = contact.location
+        objective.radius = contact.location and contact.location.radius or objective.radius
+        quest.skipAreaClear = true
+        return true, changed
+    end
+
+    quest.objectives = type(quest.objectives) == "table" and quest.objectives or {}
+    quest.objectives[#quest.objectives + 1] = Runtime.normalizeObjective(#quest.objectives + 1, quest, {
+        id = CLAIM_REWARDS_OBJECTIVE_ID,
+        type = "claimRewards",
+        label = label,
+        required = 1,
+        progress = 0,
+        targetLocation = contact.location,
+        radius = contact.location and contact.location.radius or 8,
+        rewardContactID = contact.uuid,
+        rewardContactName = contact.name,
+        rewardDelegated = contact.delegated == true,
+    })
+    quest.rewardsPendingClaim = true
+    quest.skipAreaClear = true
+
+    if Runtime.say then
+        Runtime.say(player, "Return to " .. tostring(contact.name) .. " to claim your reward.")
+    end
+    return true, true
+end
+
+local function completeQuestOrRequestRewardClaim(player, quest, reason)
+    local claimObjective = getRewardClaimObjective(quest)
+    if hasClaimableRewards(quest) and not (claimObjective and claimObjective.completed == true) then
+        local ok, changed = ensureRewardClaimObjective(player, quest)
+        if not ok then
+            Quests.FailQuest(player, quest.id, "reward_contact_unavailable")
+            return true
+        end
+        if changed then
+            Runtime.onQuestStateChanged(player)
+        end
+        return true
+    end
+
+    quest.rewardsPendingClaim = false
+    Quests.CompleteQuest(player, quest.id, reason or "completed")
+    return true
+end
+
 local function shouldCompleteQuest(player, quest)
     if not Runtime.objectivesComplete(quest) then
         return false
@@ -58,8 +396,7 @@ function Quests.OnZombieKilled(player, zombie)
             end
 
             if shouldCompleteQuest(player, quest) then
-                Quests.CompleteQuest(player, quest.id, "kill_objectives")
-                return true
+                return completeQuestOrRequestRewardClaim(player, quest, "kill_objectives")
             end
         end
     end
@@ -106,8 +443,10 @@ function Quests.OnPlayerQuestUpdate(player)
                 if type(hookResult) == "table" then
                     changed = hookResult.changed == true or changed
                     if hookResult.complete == true then
-                        Quests.CompleteQuest(player, quest.id, hookResult.reason or "hook_completed")
-                        return
+                        if not isAwaitingRewardClaim(quest) then
+                            completeQuestOrRequestRewardClaim(player, quest, hookResult.reason or "hook_completed")
+                            return
+                        end
                     end
                     if hookResult.fail == true then
                         Quests.FailQuest(player, quest.id, hookResult.reason or "hook_failed")
@@ -133,7 +472,7 @@ function Quests.OnPlayerQuestUpdate(player)
                             end
                             if objective.completeQuestOnComplete == true then
                                 quest.skipAreaClear = true
-                                Quests.CompleteQuest(player, quest.id, "objective_completed")
+                                completeQuestOrRequestRewardClaim(player, quest, "objective_completed")
                                 return
                             end
                             changed = true
@@ -173,12 +512,25 @@ function Quests.OnPlayerQuestUpdate(player)
                                 changed = true
                             end
                         end
+                    elseif objective.type == "claimRewards" then
+                        local ok, claimChanged = ensureRewardClaimObjective(player, quest)
+                        if not ok then
+                            Quests.FailQuest(player, quest.id, "reward_contact_unavailable")
+                            return
+                        end
+                        changed = claimChanged or changed
+
+                        local location = Runtime.questLocationFor(quest, objective)
+                        if Runtime.isWithinLocation(location, px, py, pz) then
+                            changed = Runtime.markObjectiveCompleted(objective) or changed
+                            quest.rewardsPendingClaim = false
+                        end
                     end
                 end
             end
 
             if shouldCompleteQuest(player, quest) then
-                Quests.CompleteQuest(player, quest.id, "player_update")
+                completeQuestOrRequestRewardClaim(player, quest, "player_update")
                 return
             end
         end
