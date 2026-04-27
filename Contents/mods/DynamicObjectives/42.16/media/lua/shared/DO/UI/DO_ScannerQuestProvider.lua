@@ -202,6 +202,22 @@ local function getSoulLocation(soul)
         return nil
     end
 
+    if DO.Quests and DO.Quests.Runtime and DO.Quests.Runtime.resolveQuestContactLocationForSoul then
+        return DO.Quests.Runtime.resolveQuestContactLocationForSoul(soul, tostring(soul.name or "Quest Contact"), {
+            preferHome = true,
+            homeLabel = tostring((type(soul.homeCoords) == "table" and soul.homeCoords.name) or (tostring(soul.name or "Quest Contact") .. "'s Base")),
+            radius = 8,
+            symbolID = "DOQuestTurnIn",
+            worldIcon = "friend.png",
+            r = 0.25,
+            g = 0.85,
+            b = 1.0,
+            a = 1.0,
+            scale = 1.0,
+            maxDrift = 64,
+        })
+    end
+
     local live = buildLocation({
         x = soul.lastX or soul.x,
         y = soul.lastY or soul.y,

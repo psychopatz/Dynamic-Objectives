@@ -119,6 +119,22 @@ local function getSoulLocation(soul, fallbackLabel)
     end
 
     local name = tostring(soul.name or fallbackLabel or "Reward Contact")
+    if Runtime.resolveQuestContactLocationForSoul then
+        return Runtime.resolveQuestContactLocationForSoul(soul, name, {
+            preferHome = true,
+            homeLabel = tostring((type(soul.homeCoords) == "table" and soul.homeCoords.name) or (name .. "'s Base")),
+            radius = 8,
+            symbolID = "DOQuestTurnIn",
+            worldIcon = "friend.png",
+            r = 0.25,
+            g = 0.85,
+            b = 1.0,
+            a = 1.0,
+            scale = 1.0,
+            maxDrift = 64,
+        })
+    end
+
     return buildRewardContactLocation({
         x = soul.lastX or soul.x,
         y = soul.lastY or soul.y,

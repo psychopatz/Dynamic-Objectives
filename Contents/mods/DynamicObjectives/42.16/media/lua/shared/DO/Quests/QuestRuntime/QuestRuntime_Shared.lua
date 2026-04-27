@@ -151,6 +151,86 @@ local function normalizeLocation(location)
     }
 end
 
+local function buildQuestContactLocation(raw, fallbackLabel, options)
+    if type(raw) ~= "table" then
+        return nil
+    end
+
+    local x = tonumber(raw.x)
+    local y = tonumber(raw.y)
+    if not x or not y then
+        return nil
+    end
+
+    options = type(options) == "table" and options or {}
+    return normalizeLocation({
+        x = x,
+        y = y,
+        z = tonumber(raw.z) or 0,
+        label = raw.label or raw.name or fallbackLabel or "Quest Contact",
+        radius = raw.radius or options.radius or 8,
+        symbolID = raw.symbolID or options.symbolID or "DOQuestTurnIn",
+        worldIcon = raw.worldIcon or options.worldIcon or "friend.png",
+        r = raw.r or options.r or 0.25,
+        g = raw.g or options.g or 0.85,
+        b = raw.b or options.b or 1.0,
+        a = raw.a or options.a or 1.0,
+        scale = raw.scale or options.scale or 1.0,
+        town = raw.town,
+        county = raw.county,
+        source = raw.source,
+    })
+end
+
+local function resolveQuestContactLocationForSoul(soul, fallbackLabel, options)
+    if type(soul) ~= "table" then
+        return nil
+    end
+
+    options = type(options) == "table" and options or {}
+    local name = tostring(soul.name or fallbackLabel or "Quest Contact")
+    local homeLabel = tostring(options.homeLabel or (name .. "'s Base"))
+
+    local live = buildQuestContactLocation({
+        x = soul.lastX or soul.x,
+        y = soul.lastY or soul.y,
+        z = soul.lastZ or soul.z,
+        label = name,
+    }, name, options)
+    local home = buildQuestContactLocation(soul.homeCoords, homeLabel, options)
+
+    if live and home then
+        local preferHome = options.preferHome == true
+        local status = string.lower(tostring(soul.status or soul.state or ""))
+        local state = string.lower(tostring(soul.state or soul.status or ""))
+        local shouldAnchorHome = preferHome
+            or soul.abstractResident == true
+            or status == "resting"
+            or state == "resting"
+            or status == "stationary"
+            or state == "stationary"
+            or status == "guarding"
+            or state == "guarding"
+            or status == "protecting"
+            or state == "protecting"
+
+        if not shouldAnchorHome then
+            local maxDrift = math.max(0, tonumber(options.maxDrift) or 80)
+            if maxDrift > 0 then
+                local dx = tonumber(live.x) - tonumber(home.x)
+                local dy = tonumber(live.y) - tonumber(home.y)
+                shouldAnchorHome = ((dx * dx) + (dy * dy)) > (maxDrift * maxDrift)
+            end
+        end
+
+        if shouldAnchorHome then
+            return home
+        end
+    end
+
+    return live or home
+end
+
 local function nextQuestID(player, store)
     store.seq = (tonumber(store.seq) or 0) + 1
     return string.format(
@@ -463,6 +543,7 @@ Runtime.isLivingZombie = isLivingZombie
 Runtime.insertNearestZoneTarget = insertNearestZoneTarget
 Runtime.getStore = getStore
 Runtime.normalizeLocation = normalizeLocation
+Runtime.resolveQuestContactLocationForSoul = resolveQuestContactLocationForSoul
 Runtime.nextQuestID = nextQuestID
 Runtime.buildFallbackDestination = buildFallbackDestination
 Runtime.buildDebugRewardContext = buildDebugRewardContext
