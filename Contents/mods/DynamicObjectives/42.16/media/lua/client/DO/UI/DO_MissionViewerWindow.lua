@@ -68,6 +68,7 @@ function DO_MissionViewerWindow:createChildren()
 end
 
 function DO_MissionViewerWindow:onMissionSelected(summary, mode)
+    if self.isRefreshingData then return end
     self.selectedQuestID = summary and summary.questID or self.selectedQuestID
     self.selectedMode = mode or self.selectedMode or "active"
 
@@ -96,8 +97,10 @@ function DO_MissionViewerWindow:refreshData(preferredQuestID, preserveTab)
         return
     end
 
+    self.isRefreshingData = true
     self.currentPanel:refreshMissions(preferredQuestID or self.selectedQuestID)
     self.donePanel:refreshMissions(preferredQuestID or self.selectedQuestID)
+    self.isRefreshingData = false
 
     local selectedMode = self.selectedMode or "active"
     if not preserveTab then

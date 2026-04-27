@@ -576,9 +576,6 @@ function DO_ObjectiveHUD:drawHeaderButton(x, y, width, height, label, active)
 end
 
 function DO_ObjectiveHUD:drawPinToggle(x, y, width, height)
-    self:drawRect(x, y, width, height, 0.9, 0.12, 0.13, 0.15)
-    self:drawRectBorder(x, y, width, height, 0.55, 0.84, 0.84, 0.84)
-
     local texture = self:getPinTexture()
     if texture then
         self:drawTextureScaled(texture, x + 5, y + 3, width - 10, height - 6, 0.98, 1, 1, 1)

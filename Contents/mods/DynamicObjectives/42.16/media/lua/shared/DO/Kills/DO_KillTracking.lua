@@ -22,7 +22,16 @@ local function isPlayer(value)
 end
 
 local function isZombie(value)
-    return value and instanceof and instanceof(value, "IsoZombie")
+    if not (value and instanceof and instanceof(value, "IsoZombie")) then
+        return false
+    end
+    
+    local modData = value:getModData()
+    if modData and modData.IsDTNPC == true then
+        return false
+    end
+    
+    return true
 end
 
 local function getLocalPlayerForKey(playerKey)

@@ -360,6 +360,21 @@ function Quests.StartQuest(player, spec)
     Runtime.syncEncounterObjectiveCounts(quest)
 
     store.quests[#store.quests + 1] = quest
+    
+    local QUEST_CAP = 50
+    while #store.quests > QUEST_CAP do
+        local removed = false
+        for i = 1, #store.quests do
+            if store.quests[i].status ~= "active" then
+                table.remove(store.quests, i)
+                removed = true
+                break
+            end
+        end
+        if not removed then
+            table.remove(store.quests, 1)
+        end
+    end
     Runtime.markBlueprintLedger(store, quest, "lastStartedAtWorldHours")
     Runtime.markChainQuestStarted(store, quest)
     applyQuestFocus(store, quest)
