@@ -181,6 +181,10 @@ function DO.NotifyStateChanged(player)
         DO_CompletionModal.ProcessLatestCompletedQuest(player)
     end
 
+    if DO_FailureModal and DO_FailureModal.ProcessLatestFailedQuest then
+        DO_FailureModal.ProcessLatestFailedQuest(player)
+    end
+
     if DT_RadioScannerWindow and DT_RadioScannerWindow.instance and DT_RadioScannerWindow.instance.currentCategory == "Quest" then
         DT_RadioScannerWindow.instance.skipQuestServerRefresh = true
         DT_RadioScannerWindow.instance:refresh()
@@ -188,6 +192,7 @@ function DO.NotifyStateChanged(player)
 end
 
 require "DO/Integration/DO_V2Integration"
+require "DO/Common/DO_MedicalItemUtils"
 require "DO/Common/DO_ObjectiveHookRegistry"
 require "DO/Common/DO_QuestRegistry"
 require "DO/Common/DO_QuestBlueprintValidator"

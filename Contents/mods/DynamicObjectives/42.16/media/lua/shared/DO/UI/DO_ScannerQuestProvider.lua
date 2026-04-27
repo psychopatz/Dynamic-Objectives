@@ -23,6 +23,79 @@ local function getEntryID(entry)
     return tostring(entry.questID or entry.incidentId or entry.uuid or "")
 end
 
+local function getEntryKeys(entry)
+    if type(entry) ~= "table" then
+        return {}
+    end
+
+    local keys = {}
+    local seen = {}
+    local function add(value)
+        local text = value and tostring(value) or ""
+        if text == "" or seen[text] == true then
+            return
+        end
+        seen[text] = true
+        keys[#keys + 1] = text
+    end
+
+    local hookId = tostring(entry.hookId or "")
+    local entryKind = tostring(entry.entryKind or "")
+    local uuid = tostring(entry.uuid or "")
+    local questID = tostring(entry.questID or "")
+    local incidentId = tostring(entry.incidentId or "")
+    local x = tonumber(entry.x)
+    local y = tonumber(entry.y)
+    local z = tonumber(entry.z)
+
+    add(getEntryID(entry))
+    if questID ~= "" then
+        add("quest:" .. questID)
+        if hookId ~= "" then
+            add("hookquest:" .. hookId .. ":" .. questID)
+        end
+    end
+    if incidentId ~= "" then
+        add("incident:" .. incidentId)
+        if hookId ~= "" then
+            add("hookincident:" .. hookId .. ":" .. incidentId)
+        end
+    end
+    if uuid ~= "" then
+        add("uuid:" .. uuid)
+        if hookId ~= "" and entryKind ~= "" then
+            add("hookuuid:" .. hookId .. ":" .. entryKind .. ":" .. uuid)
+        end
+        if x ~= nil and y ~= nil then
+            add(string.format("uuidpos:%s:%d:%d:%d", uuid, math.floor(x), math.floor(y), math.floor(tonumber(z) or 0)))
+        end
+    end
+    if uuid ~= "" and hookId ~= "" and entryKind ~= "" and x ~= nil and y ~= nil then
+        add(string.format("hookpos:%s:%s:%s:%d:%d:%d", hookId, entryKind, uuid, math.floor(x), math.floor(y), math.floor(tonumber(z) or 0)))
+    end
+
+    return keys
+end
+
+local function registerScannerEntry(results, seen, entry)
+    local keys = getEntryKeys(entry)
+    if #keys == 0 then
+        return false
+    end
+
+    for _, key in ipairs(keys) do
+        if seen[key] == true then
+            return false
+        end
+    end
+
+    for _, key in ipairs(keys) do
+        seen[key] = true
+    end
+    results[#results + 1] = entry
+    return true
+end
+
 local function formatHoursLabel(prefix, hours)
     local value = tonumber(hours)
     if not value then
@@ -407,11 +480,7 @@ function UI.GetScannerQuestEntries(player)
             if hook and hook.buildScannerEntries then
                 local entries = hook.buildScannerEntries(player)
                 for _, entry in ipairs(type(entries) == "table" and entries or {}) do
-                    local entryID = getEntryID(entry)
-                    if entryID and not seen[entryID] then
-                        seen[entryID] = true
-                        results[#results + 1] = entry
-                    end
+                    registerScannerEntry(results, seen, entry)
                 end
             end
         end
@@ -420,19 +489,11 @@ function UI.GetScannerQuestEntries(player)
     local activeQuests = DO.Quests and DO.Quests.GetActiveQuests and DO.Quests.GetActiveQuests(player) or {}
     for _, quest in ipairs(activeQuests) do
         local entry = buildGenericQuestScannerEntry(player, quest)
-        local entryID = getEntryID(entry)
-        if entryID and not seen[entryID] then
-            seen[entryID] = true
-            results[#results + 1] = entry
-        end
+        registerScannerEntry(results, seen, entry)
     end
 
     for _, entry in ipairs(collectAvailableOfferEntries(player)) do
-        local entryID = getEntryID(entry)
-        if entryID and not seen[entryID] then
-            seen[entryID] = true
-            results[#results + 1] = entry
-        end
+        registerScannerEntry(results, seen, entry)
     end
 
     table.sort(results, function(left, right)

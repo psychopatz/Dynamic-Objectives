@@ -29,7 +29,7 @@ local function onServerCommand(module, command, args)
         end
     elseif command == "HookIncidentAccepted" then
         local player = getLocalPlayer()
-        if player and args and args.questSpec and DO.Quests and DO.Quests.StartQuest then
+        if player and args and args.questSpec and not args.questID and DO.Quests and DO.Quests.StartQuest then
             DO.Quests.StartQuest(player, DO.DeepCopy and DO.DeepCopy(args.questSpec) or args.questSpec)
         end
 
@@ -39,6 +39,10 @@ local function onServerCommand(module, command, args)
     elseif command == "HookIncidentFailed" then
         if _G.DOTraderHelpEscortJobUI and _G.DOTraderHelpEscortJobUI.OnIncidentFailed then
             _G.DOTraderHelpEscortJobUI.OnIncidentFailed(args)
+        end
+    elseif command == "HookEscortActionResult" then
+        if _G.DOTraderHelpEscortJobUI and _G.DOTraderHelpEscortJobUI.OnEscortActionResult then
+            _G.DOTraderHelpEscortJobUI.OnEscortActionResult(args)
         end
     end
 end

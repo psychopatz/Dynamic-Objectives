@@ -132,6 +132,11 @@ function DO_DebugWindow:createChildren()
     self.btnMissionCompleteModal.backgroundColor = { r = 0.1, g = 0.35, b = 0.5, a = 1.0 }
     self:addChild(self.btnMissionCompleteModal)
 
+    self.btnMissionFailModal = ISButton:new(0, 0, 80, self.buttonH, "Test Failure Modal", self, self.onTestFailureModal)
+    self.btnMissionFailModal:initialise()
+    self.btnMissionFailModal.backgroundColor = { r = 0.42, g = 0.16, b = 0.16, a = 1.0 }
+    self:addChild(self.btnMissionFailModal)
+
     self.lblTracked = ISLabel:new(0, 0, 18, "Tracked: None", 1, 1, 1, 1, UIFont.Small, true)
     self.lblTracked:initialise()
     self:addChild(self.lblTracked)
@@ -187,6 +192,7 @@ function DO_DebugWindow:getContentWidth()
         measureText(UIFont.Small, "Open Mission Viewer"),
         measureText(UIFont.Small, "Preview Quest Conversation"),
         measureText(UIFont.Small, "Test Completion Modal"),
+        measureText(UIFont.Small, "Test Failure Modal"),
         measureText(UIFont.Small, "Locate Selected")
     ) + 28
     local rowWidth = (buttonTextWidth * 2) + self.gap + (self.pad * 2)
@@ -209,7 +215,7 @@ function DO_DebugWindow:syncWindowSize()
     local contentWidth = clamp(self:getContentWidth(), 460, math.max(520, screenW - 80))
     local listItems = self.activeList and #(self.activeList.items or {}) or 0
     local listHeight = clamp(math.max(104, listItems * 28), 120, math.floor(screenH * 0.42))
-    local contentHeight = 340 + listHeight
+    local contentHeight = 374 + listHeight
     local windowHeight = clamp(contentHeight + self:titleBarHeight() + 20, 420, screenH - 100)
 
     self:setWidth(contentWidth)
@@ -290,6 +296,11 @@ function DO_DebugWindow:layoutChildren()
     self.btnMissionCompleteModal:setX(x)
     self.btnMissionCompleteModal:setY(y)
     self.btnMissionCompleteModal:setWidth(fullW)
+    y = y + buttonH + 10
+
+    self.btnMissionFailModal:setX(x)
+    self.btnMissionFailModal:setY(y)
+    self.btnMissionFailModal:setWidth(fullW)
     y = y + buttonH + 10
 
     self.lblTracked:setX(x)
@@ -506,6 +517,38 @@ function DO_DebugWindow:onTestCompletionModal()
 
     if player.Say then
         player:Say("Completion modal simulation unavailable.")
+    end
+end
+
+function DO_DebugWindow:onTestFailureModal()
+    local player = getLocalPlayer()
+    if not player then
+        return
+    end
+
+    if DO_FailureModal and DO_FailureModal.initializedFailureBaseline ~= true and DO_FailureModal.ProcessLatestFailedQuest then
+        DO_FailureModal.ProcessLatestFailedQuest(player)
+    end
+
+    local quest = DynamicObjectives.Quests
+        and DynamicObjectives.Quests.DebugSimulateQuestFailure
+        and DynamicObjectives.Quests.DebugSimulateQuestFailure(player, self.debugDifficulty, self.debugTimeLimitHours)
+        or nil
+
+    if quest and DO_FailureModal and DO_FailureModal.ProcessLatestFailedQuest then
+        DO_FailureModal.ProcessLatestFailedQuest(player)
+        self:refreshQuestList()
+        return
+    end
+
+    if quest and DO_FailureModal and DO_FailureModal.Open then
+        DO_FailureModal.Open(quest)
+        self:refreshQuestList()
+        return
+    end
+
+    if player.Say then
+        player:Say("Failure modal simulation unavailable.")
     end
 end
 

@@ -653,3 +653,21 @@ function Quests.GetLatestCompletedQuest(player)
 
     return latest
 end
+
+function Quests.GetLatestFailedQuest(player)
+    local store = Runtime.getStore(player, false)
+    if not store then
+        return nil
+    end
+
+    local latest = nil
+    for _, quest in ipairs(store.quests or {}) do
+        if quest.status == "failed" and tonumber(quest.failedAt) then
+            if not latest or tonumber(quest.failedAt) > tonumber(latest.failedAt or 0) then
+                latest = quest
+            end
+        end
+    end
+
+    return latest
+end

@@ -160,6 +160,30 @@ function Quests.DebugSimulateQuestCompletion(player, difficulty, timeLimitHours)
     return quest
 end
 
+function Quests.DebugSimulateQuestFailure(player, difficulty, timeLimitHours)
+    if not player then
+        return nil
+    end
+
+    local quest = Quests.StartQuest(player, buildDebugCompletionSpec(player, difficulty, timeLimitHours))
+    if not quest then
+        return nil
+    end
+
+    quest.title = "Mission Failure Modal Test"
+    quest.name = "Debug Failure Contract"
+
+    if not Quests.FailQuest(player, quest.id, "escort_target_incapacitated") then
+        return nil
+    end
+
+    if Quests.GetQuest then
+        return Quests.GetQuest(player, quest.id) or quest
+    end
+
+    return quest
+end
+
 function Quests.DumpState(player)
     local store = Runtime.getStore(player, false)
     if not store then

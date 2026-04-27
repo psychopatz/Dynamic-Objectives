@@ -107,6 +107,27 @@ local function onClientCommand(module, command, player, args)
         end
 
         hook.finalizeQuest(player, args)
+    elseif command == "EscortObjectiveAction" then
+        if not player or type(args) ~= "table" then
+            return
+        end
+
+        local hook = DynamicObjectives.GetObjectiveHook and DynamicObjectives.GetObjectiveHook(args.hookId) or nil
+        if not hook or not hook.performEscortAction then
+            return
+        end
+
+        local result = hook.performEscortAction(player, args) or {
+            ok = false,
+            hookId = args.hookId,
+            incidentId = args.incidentId,
+            traderId = args.traderId,
+            action = args.action,
+            message = "The escort order could not be applied.",
+        }
+        if sendServerCommand then
+            sendServerCommand(player, "DynamicObjectives", "HookEscortActionResult", result)
+        end
     end
 end
 

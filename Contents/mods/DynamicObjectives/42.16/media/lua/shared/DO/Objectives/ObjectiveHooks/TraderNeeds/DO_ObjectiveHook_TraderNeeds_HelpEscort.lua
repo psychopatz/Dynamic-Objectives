@@ -16,6 +16,9 @@ local HOME_RADIUS = 14
 local ZOMBIE_ACTIVATION_RADIUS = 75
 local EXTERIOR_ZOMBIE_GROUPS = 8
 local EXTERIOR_ZOMBIES_PER_GROUP = 2
+local ESCORT_NOISE_RADIUS = 90
+local ESCORT_NOISE_VOLUME = 120
+local ESCORT_NOISE_COOLDOWN_MS = 12000
 
 local PREFERRED_HOUSE_ROOMS = {
     livingroom = true,
@@ -60,6 +63,27 @@ end
 local function normalizeLower(value)
     local text = normalizeText(value)
     return text and string.lower(text) or nil
+end
+
+local function roundNumber(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local function formatDistanceLabel(prefix, value)
+    local number = tonumber(value)
+    if number == nil then
+        return nil
+    end
+    return string.format("%s %.0fm", tostring(prefix or "Distance"), number)
+end
+
+local function formatEscortRouteText(routeDistance, homeDistance)
+    local left = formatDistanceLabel("Route", routeDistance)
+    local right = formatDistanceLabel("Home", homeDistance)
+    if left and right then
+        return left .. " | " .. right
+    end
+    return left or right or ""
 end
 
 local function isAliveSoul(soul)
@@ -908,9 +932,12 @@ local function findEligibleTraders(worldState, player)
         summary.total = summary.total + 1
         local homeCoords = buildCoords(soul and soul.homeCoords, "Trader Base", HOME_RADIUS)
         local homeMetrics = buildEscortDistanceMetrics(player, homeCoords, homeCoords)
+        local status = tostring(soul and soul.status or "")
+        local state = tostring(soul and soul.state or "")
+        local isTrading = status == "Trading" or state == "Trading"
         if not isAliveSoul(soul) then
             summary.dead = summary.dead + 1
-        elseif tostring(soul.status or "") ~= "Trading" or tostring(soul.state or "") == "Departure" then
+        elseif not isTrading or state == "Departure" then
             summary.notTrading = summary.notTrading + 1
         elseif homeCoords == nil or homeMetrics == nil then
             summary.noHome = summary.noHome + 1
@@ -1117,6 +1144,9 @@ local function buildBaseQuestSpecForIncident(incident)
             factionName = incident.factionName,
             rescueSite = rescueSite,
             homeCoords = homeCoords,
+            rescueDistance = tonumber(incident.rescueDistance) or nil,
+            homeDistance = tonumber(incident.homeDistance) or nil,
+            routeDistance = tonumber(incident.routeDistance) or nil,
         },
         name = string.format("Escort %s Home", traderName),
         targetLocation = homeCoords,
@@ -1313,13 +1343,103 @@ local function getClientTraderSnapshot(traderId)
     return nil
 end
 
+local function snapshotIsIncapacitated(snapshot)
+    local npcData = snapshot and snapshot.npcData or nil
+    if not npcData then
+        return false
+    end
+
+    return tostring(npcData.incapState or "") == "Active"
+        or tostring(npcData.state or "") == "Incapacitated"
+        or tostring(snapshot.status or "") == "Incapacitated"
+end
+
+local function emitEscortNoise(player, quest)
+    if not player or not quest then
+        return false
+    end
+
+    quest.hookState = type(quest.hookState) == "table" and quest.hookState or {}
+    local nowMs = DO.NowMs()
+    local lastNoiseAt = tonumber(quest.hookState.lastEscortNoiseAt) or 0
+    if nowMs > 0 and lastNoiseAt > 0 and nowMs - lastNoiseAt < ESCORT_NOISE_COOLDOWN_MS then
+        return false
+    end
+
+    local x = roundNumber(player:getX())
+    local y = roundNumber(player:getY())
+    local z = roundNumber(player:getZ())
+    if DT_AudioManager and DT_AudioManager.PlayUISound then
+        DT_AudioManager.PlayUISound("DT_HordeWarning", 1.0)
+    end
+
+    local flavorLines = {
+        "I heard something moving out there.",
+        "That noise is pulling more of them in.",
+        "Movement nearby. Stay sharp.",
+        "I can hear them coming.",
+    }
+    if player.Say and #flavorLines > 0 then
+        player:Say(flavorLines[ZombRand(#flavorLines) + 1])
+    end
+
+    if addSound then
+        local ok = pcall(addSound, player, x, y, z, ESCORT_NOISE_RADIUS, ESCORT_NOISE_VOLUME)
+        if ok then
+            quest.hookState.lastEscortNoiseAt = nowMs
+            return true
+        end
+    end
+
+    local manager = getWorldSoundManager and getWorldSoundManager() or nil
+    if manager and manager.addSound then
+        manager:addSound(player, x, y, z, ESCORT_NOISE_RADIUS, ESCORT_NOISE_VOLUME)
+        quest.hookState.lastEscortNoiseAt = nowMs
+        return true
+    end
+
+    return false
+end
+
+local function getEscortNpcDataByUUID(uuid)
+    if not uuid or not DTNPCServerCore or not DTNPCServerCore.GetNPCDataByUUID then
+        return nil, nil
+    end
+
+    local zombie, npcData = DTNPCServerCore.GetNPCDataByUUID(uuid)
+    if type(zombie) == "boolean" then
+        zombie = nil
+    end
+    return zombie, npcData
+end
+
+local function primeEscortBandageSupply(npcData, consumedBandage)
+    if not npcData or not DTNPCHealth or not DTNPCHealth.EnsureDefaults then
+        return false
+    end
+
+    local combatHealth = DTNPCHealth.EnsureDefaults(npcData)
+    if not combatHealth then
+        return false
+    end
+
+    combatHealth.bandageUnlimited = false
+    combatHealth.bandageCharges = math.max(1, tonumber(combatHealth.bandageCharges) or 0)
+    if consumedBandage and consumedBandage.fullType and tostring(consumedBandage.fullType) ~= "" then
+        combatHealth.bandageItemFullType = tostring(consumedBandage.fullType)
+    end
+    return true
+end
+
 local function buildPendingScannerEntry(player, incident)
     local rescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
+    local homeCoords = buildCoords(incident.homeCoords, "Trader Base", HOME_RADIUS)
     if not rescueSite then
         return nil
     end
 
-    local dist = distanceBetween(player:getX(), player:getY(), rescueSite.x, rescueSite.y)
+    local rescueDistance = distanceBetween(player:getX(), player:getY(), rescueSite.x, rescueSite.y)
+    local metrics = homeCoords and buildEscortDistanceMetrics(player, rescueSite, homeCoords) or nil
     local expiresAt = tonumber(incident.expiresAt) or 0
     local remainingHours = expiresAt > 0 and math.max(0, (expiresAt - (DO.NowMs and DO.NowMs() or 0)) / (1000 * 60 * 60)) or nil
     return {
@@ -1336,8 +1456,9 @@ local function buildPendingScannerEntry(player, incident)
         x = rescueSite.x,
         y = rescueSite.y,
         z = rescueSite.z,
-        distText = string.format("Distress House: %.0fm", dist),
+        distText = string.format("Distress House: %.0fm", rescueDistance),
         expireText = remainingHours and string.format("Signal %.1fh", remainingHours) or "Pending rescue",
+        detailText = metrics and formatEscortRouteText(metrics.routeDistance, metrics.homeDistance) or "",
         isLive = false,
         canLock = false,
         locked = false,
@@ -1353,7 +1474,7 @@ local function buildActiveQuestScannerEntry(player, quest)
         return nil
     end
 
-    local dist = distanceBetween(player:getX(), player:getY(), target.x, target.y)
+    local homeDistance = distanceBetween(player:getX(), player:getY(), target.x, target.y)
     local detail = DO.Quests and DO.Quests.GetQuestDetailData and DO.Quests.GetQuestDetailData(player, quest.id) or nil
     local remainingHours = detail and tonumber(detail.timeRemainingHours) or nil
     return {
@@ -1371,10 +1492,11 @@ local function buildActiveQuestScannerEntry(player, quest)
         x = target.x,
         y = target.y,
         z = target.z,
-        distText = string.format("Home Base: %.0fm", dist),
+        distText = string.format("Home Base: %.0fm", homeDistance),
         expireText = remainingHours ~= nil and string.format("Expires in %.1fh", math.max(0, remainingHours))
             or (quest.rewardPreview and ("Rewards: " .. tostring(quest.rewardPreview)))
             or "Escort active",
+        detailText = formatDistanceLabel("Route", homeDistance),
         isLive = false,
         canLock = false,
         locked = false,
@@ -1559,6 +1681,10 @@ function Hook.buildOffer(player, context)
     local questSpec = player and incident and buildQuestSpecForIncident(player, incident) or nil
     local contractTitle = tostring(questSpec and (questSpec.title or questSpec.name) or (traderName .. " Escort"))
     local rewardPreview = questSpec and questSpec.rewardPreview and tostring(questSpec.rewardPreview) or nil
+    local rescueSite = buildCoords(incident and incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
+    local homeCoords = buildCoords(incident and incident.homeCoords, "Trader Base", HOME_RADIUS)
+    local metrics = player and rescueSite and homeCoords and buildEscortDistanceMetrics(player, rescueSite, homeCoords) or nil
+    local routeText = metrics and formatEscortRouteText(metrics.routeDistance, metrics.homeDistance) or ""
     return {
         choiceLabels = {
             accept = "Accept",
@@ -1568,8 +1694,9 @@ function Hook.buildOffer(player, context)
         },
         offer = string.format("%s. Zombies pinned me down here. Escort me back to base, and I'll make it worth your time.", contractTitle),
         details = string.format(
-            "Keep %s alive and get them back to their home base. The dead are crowding the front of the house.%s",
+            "Keep %s alive and get them back to their home base. The dead are crowding the front of the house.%s%s",
             traderName,
+            routeText ~= "" and (" " .. routeText .. ".") or "",
             rewardPreview and (" Reward package: " .. rewardPreview .. ".") or ""
         ),
         accept = string.format("I'm with you. Stay sharp and get me home."),
@@ -1628,6 +1755,24 @@ function Hook.acceptIncident(player, args)
         }
     end
 
+    local existingQuest = getActiveHookQuest(player, incidentId, incident.traderId)
+    if existingQuest then
+        incident.ownerPlayerKey = tostring(playerKey)
+        incident.ownerUsername = username and tostring(username) or nil
+        incident.status = "accepted"
+        incident.questId = tostring(existingQuest.id or incident.questId or "")
+        syncIncidentMirrorForPlayer(player, incident)
+        transmitWorldState()
+        return {
+            ok = true,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = incident.traderId,
+            questID = tostring(existingQuest.id or ""),
+            message = "Escort accepted. Get the trader home.",
+        }
+    end
+
     local soul = getSoul(incident.traderId)
     if not isAliveSoul(soul) then
         incident.status = "failed"
@@ -1666,6 +1811,26 @@ function Hook.acceptIncident(player, args)
         }
     end
 
+    local startedQuest = Quests.StartQuest and Quests.StartQuest(player, questSpec) or nil
+    if not startedQuest then
+        incident.status = "pending"
+        incident.ownerPlayerKey = nil
+        incident.ownerUsername = nil
+        incident.acceptedAt = nil
+        incident.questId = nil
+        applyDistressState(incident)
+        transmitWorldState()
+        return {
+            ok = false,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            reason = "start_failed",
+            message = "The escort could not be started.",
+        }
+    end
+
+    incident.questId = tostring(startedQuest.id or incident.questId or "")
+
     syncIncidentMirrorForPlayer(player, incident)
     transmitWorldState()
 
@@ -1674,8 +1839,150 @@ function Hook.acceptIncident(player, args)
         hookId = HOOK_ID,
         incidentId = incidentId,
         traderId = incident.traderId,
+        questID = tostring(startedQuest.id or ""),
         message = "Escort accepted. Get the trader home.",
-        questSpec = questSpec,
+    }
+end
+
+function Hook.performEscortAction(player, args)
+    local action = tostring(args and args.action or ""):lower()
+    local traderId = args and args.traderId and tostring(args.traderId) or nil
+    local incidentId = args and args.incidentId and tostring(args.incidentId) or nil
+    if not player or not isAuthoritative() or action == "" or not traderId then
+        return {
+            ok = false,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = traderId,
+            action = action,
+            message = "The escort cannot respond right now.",
+        }
+    end
+
+    local worldState = getWorldState(false)
+    local incident = worldState and incidentId and worldState.incidents[incidentId] or nil
+    local playerKey = tostring(DO.GetPlayerKey and DO.GetPlayerKey(player) or "")
+    local soul = getSoul(traderId)
+    if incidentId and incident == nil and soul and tostring(soul.doObjectiveIncidentId or "") == incidentId then
+        incident = {
+            traderId = traderId,
+            ownerPlayerKey = soul.doObjectiveOwnerPlayerKey,
+            status = soul.doObjectiveEscortActive == true and "accepted" or soul.doObjectiveIncidentStatus,
+        }
+    end
+
+    if not incident or tostring(incident.status or "") ~= "accepted" then
+        return {
+            ok = false,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = traderId,
+            action = action,
+            message = "This escort mission is no longer active.",
+        }
+    end
+
+    if tostring(incident.ownerPlayerKey or "") ~= playerKey then
+        return {
+            ok = false,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = traderId,
+            action = action,
+            message = "Only the assigned rescuer can command this escort.",
+        }
+    end
+
+    if action == "follow" or action == "stay" then
+        local targetState = action == "follow" and "Follow" or "Stay"
+        local changed, updatedNPC = false, nil
+        if DTNPCServerCore and DTNPCServerCore.IssueOrderByUUID then
+            changed, updatedNPC = DTNPCServerCore.IssueOrderByUUID(traderId, player, { state = targetState })
+        end
+        return {
+            ok = changed == true or updatedNPC ~= nil,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = traderId,
+            action = action,
+            message = action == "follow"
+                    and "Stay close. I'll follow your lead."
+                or "I'll hold here until you move me again.",
+            stateChanged = changed == true,
+        }
+    end
+
+    if action == "patchup" then
+        local bandageItem = DO.MedicalItemUtils and DO.MedicalItemUtils.FindFirstBandageItem
+            and DO.MedicalItemUtils.FindFirstBandageItem(player)
+            or nil
+        if not bandageItem then
+            return {
+                ok = false,
+                hookId = HOOK_ID,
+                incidentId = incidentId,
+                traderId = traderId,
+                action = action,
+                message = "You need a bandage, adhesive bandage, or rag before you can patch me up.",
+            }
+        end
+
+        local zombie, npcData = getEscortNpcDataByUUID(traderId)
+        if not npcData and DTNPCServerCore and DTNPCServerCore.SpawnNearbyCompanionByUUID then
+            DTNPCServerCore.SpawnNearbyCompanionByUUID(traderId, player, 2, 5)
+            zombie, npcData = getEscortNpcDataByUUID(traderId)
+        end
+
+        local reservedBandage = {
+            fullType = tostring(bandageItem.getFullType and bandageItem:getFullType() or ""),
+            displayName = DO.MedicalItemUtils and DO.MedicalItemUtils.GetBandageDisplayName
+                and DO.MedicalItemUtils.GetBandageDisplayName(bandageItem)
+                or "bandage",
+        }
+
+        if not primeEscortBandageSupply(npcData, reservedBandage) then
+            return {
+                ok = false,
+                hookId = HOOK_ID,
+                incidentId = incidentId,
+                traderId = traderId,
+                action = action,
+                message = "The escort can't be treated right now.",
+            }
+        end
+
+        if DTNPCServerCore and DTNPCServerCore.UpdateNPCByUUID then
+            DTNPCServerCore.UpdateNPCByUUID(traderId, {
+                combatHealth = npcData.combatHealth,
+            }, true)
+        end
+
+        local patched = DTNPCServerCore and DTNPCServerCore.StartPatchUpByUUID
+            and DTNPCServerCore.StartPatchUpByUUID(traderId)
+            or false
+        if patched == true and DO.MedicalItemUtils and DO.MedicalItemUtils.ConsumeFirstBandageItem then
+            DO.MedicalItemUtils.ConsumeFirstBandageItem(player)
+        end
+        return {
+            ok = patched == true,
+            hookId = HOOK_ID,
+            incidentId = incidentId,
+            traderId = traderId,
+            action = action,
+            message = patched == true
+                    and ("Use this " .. tostring(reservedBandage.displayName or "bandage") .. " and keep moving.")
+                or "I can't patch up right now. Keep the dead off me.",
+            stateChanged = patched == true,
+        }
+    end
+
+    return {
+        ok = false,
+        hookId = HOOK_ID,
+        incidentId = incidentId,
+        traderId = traderId,
+        action = action,
+        message = "That escort command isn't supported.",
     }
 end
 
@@ -1810,6 +2117,13 @@ function Hook.onQuestUpdate(player, quest, store)
         }
     end
 
+    if snapshot and snapshotIsIncapacitated(snapshot) then
+        return {
+            fail = true,
+            reason = "escort_target_incapacitated",
+        }
+    end
+
     if objective and homeCoords and snapshot and snapshot.x and snapshot.y then
         local reachedHome = isWithinRadius(homeCoords, snapshot.x, snapshot.y, snapshot.z)
         if reachedHome then
@@ -1823,6 +2137,10 @@ function Hook.onQuestUpdate(player, quest, store)
                 reason = "escort_home",
             }
         end
+    end
+
+    if snapshot and snapshot.x and snapshot.y and homeCoords then
+        emitEscortNoise(player, quest)
     end
 
     return nil
