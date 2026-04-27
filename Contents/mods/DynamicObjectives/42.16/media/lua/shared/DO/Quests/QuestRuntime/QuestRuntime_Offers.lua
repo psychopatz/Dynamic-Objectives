@@ -13,6 +13,38 @@ local function getTraderID(context)
     return tostring(context.traderID or context.id or "")
 end
 
+local function isQuestBlockedForNomadFaction(traderContext)
+    if type(traderContext) ~= "table" then
+        return false
+    end
+
+    if traderContext.isNomadic == true then
+        return true
+    end
+
+    local factionID = traderContext.factionID and tostring(traderContext.factionID) or ""
+    local contextFactionType = tostring(traderContext.factionType or "")
+    if factionID == "Independent" or contextFactionType == "independent" or contextFactionType == "bandit" then
+        return true
+    end
+
+    if factionID == "" or not DynamicTrading_Factions or not DynamicTrading_Factions.GetFaction then
+        return false
+    end
+
+    local ok, faction = pcall(function()
+        return DynamicTrading_Factions.GetFaction(factionID)
+    end)
+    if not ok or type(faction) ~= "table" then
+        return false
+    end
+
+    local factionType = tostring(faction.factionType or "")
+    return faction.isNomadic == true
+        or factionType == "independent"
+        or factionType == "bandit"
+end
+
 local function getOfferFamily(offer)
     if type(offer) ~= "table" then
         return nil
@@ -153,6 +185,8 @@ function Quests.GetEligibleTraderOffers(player, traderContext)
         return results
     end
 
+    local blockNewQuestGeneration = isQuestBlockedForNomadFaction(traderContext)
+
     local occupiedFamilies = {}
     local bestBlocked = nil
     local pendingOffer = Runtime.buildPendingChainOffer and Runtime.buildPendingChainOffer(store, player, traderContext) or nil
@@ -187,7 +221,9 @@ function Quests.GetEligibleTraderOffers(player, traderContext)
                 if family then
                     occupiedFamilies[family] = true
                 end
-            elseif Runtime.blueprintMatchesEligibility and Runtime.blueprintMatchesEligibility(player, traderContext, blueprint) then
+            elseif not blockNewQuestGeneration
+                and Runtime.blueprintMatchesEligibility
+                and Runtime.blueprintMatchesEligibility(player, traderContext, blueprint) then
                 local cooldownRemainingHours = Runtime.getBlueprintCooldownRemaining and Runtime.getBlueprintCooldownRemaining(store, blueprint) or 0
                 if tonumber(cooldownRemainingHours) and tonumber(cooldownRemainingHours) > 0 then
                     if not bestBlocked or tonumber(cooldownRemainingHours) < tonumber(bestBlocked.cooldownRemainingHours) then
@@ -208,7 +244,9 @@ function Quests.GetEligibleTraderOffers(player, traderContext)
         end
     end
 
-    local ambientOffers = Runtime.selectAmbientRestingOffers and Runtime.selectAmbientRestingOffers(player, traderContext, store, occupiedFamilies) or {}
+    local ambientOffers = (not blockNewQuestGeneration)
+        and (Runtime.selectAmbientRestingOffers and Runtime.selectAmbientRestingOffers(player, traderContext, store, occupiedFamilies) or {})
+        or {}
     local ambientPriority = 100
     for _, ambient in ipairs(ambientOffers) do
         results[#results + 1] = {
@@ -230,7 +268,7 @@ function Quests.GetEligibleTraderOffers(player, traderContext)
         ambientPriority = ambientPriority - 1
     end
 
-    if #results == 0 and bestBlocked then
+    if #results == 0 and bestBlocked and not blockNewQuestGeneration then
         results[#results + 1] = bestBlocked
     end
 
