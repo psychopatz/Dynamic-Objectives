@@ -1,0 +1,12 @@
+module Base
+{
+    sound DO_ObjectiveComplete
+    {
+        category = World,
+        clip
+        {
+            file = media/sound/DO_ObjectiveComplete.ogg,
+            distanceMax = 20,
+        }
+    }
+}

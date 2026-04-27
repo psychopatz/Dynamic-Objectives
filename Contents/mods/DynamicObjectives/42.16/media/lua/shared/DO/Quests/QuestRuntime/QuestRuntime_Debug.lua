@@ -21,6 +21,48 @@ local function buildDebugOverrides(difficulty, timeLimitHours)
     }
 end
 
+local function buildDebugCompletionSpec(player, difficulty, timeLimitHours)
+    local store = Runtime.getStore and Runtime.getStore(player, true) or nil
+    local destination = Runtime.buildFallbackDestination and Runtime.buildFallbackDestination(player, "Debug Completion Contract") or nil
+    local location = Runtime.normalizeLocation and Runtime.normalizeLocation(destination or {}) or destination or {}
+    local context = Runtime.buildDebugRewardContext and Runtime.buildDebugRewardContext(location) or {}
+    local id = Runtime.nextQuestID and Runtime.nextQuestID(player, store or { seq = 0 }) or ("DOQ_DEBUG_COMPLETE_" .. tostring(ZombRand(100000, 999999)))
+
+    return {
+        id = id,
+        name = "Debug Completion Contract",
+        title = "Mission Complete Modal Test",
+        giverName = "Debug Manager",
+        giverTitle = "Simulation",
+        giverFactionID = context.factionID,
+        giverFactionName = context.factionName or "Independent",
+        targetLocation = location,
+        baseDifficulty = difficulty and Runtime.normalizeDifficulty(difficulty) or 1.0,
+        baseTimeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
+        timeLimitHours = math.max(0, tonumber(timeLimitHours) or 0),
+        expirationScaled = true,
+        rewardContext = context,
+        rewards = {
+            { kind = "money", amount = 180 },
+            { kind = "reputation", amount = 12, factionID = context.factionID, factionName = context.factionName },
+            { kind = "item", count = 2, itemType = "Base.Axe" },
+            { kind = "item", count = 1, itemType = "Base.HuntingKnife" },
+            { kind = "item", count = 3, itemType = "Base.CannedSoup" },
+        },
+        objectives = {
+            {
+                id = "debug_secure_site",
+                type = "kill",
+                label = "Secure the debug objective",
+                required = 1,
+                progress = 0,
+                completed = false,
+            },
+        },
+        debugLifecycleSimulation = true,
+    }
+end
+
 function Quests.BuildDebugKillZoneQuest(player, difficulty, timeLimitHours)
     local blueprint = DO.GetQuestBlueprint and DO.GetQuestBlueprint("resting_kill_zone") or nil
     return Runtime.buildQuestSpecFromBlueprint(player, buildDebugTraderContext(), blueprint or {}, buildDebugOverrides(difficulty, timeLimitHours))
@@ -84,6 +126,38 @@ end
 
 function Quests.DebugStartRestingChainQuest(player, difficulty, timeLimitHours)
     return Quests.StartQuest(player, Quests.BuildDebugRestingChainQuest(player, difficulty, timeLimitHours))
+end
+
+function Quests.BuildDebugCompletionQuest(player, difficulty, timeLimitHours)
+    return buildDebugCompletionSpec(player, difficulty, timeLimitHours)
+end
+
+function Quests.DebugSimulateQuestCompletion(player, difficulty, timeLimitHours)
+    if not player then
+        return nil
+    end
+
+    local quest = Quests.StartQuest(player, buildDebugCompletionSpec(player, difficulty, timeLimitHours))
+    if not quest then
+        return nil
+    end
+
+    for _, objective in ipairs(quest.objectives or {}) do
+        objective.progress = math.max(tonumber(objective.required) or 1, tonumber(objective.progress) or 0)
+        objective.completed = true
+    end
+
+    quest.rewardsPendingClaim = false
+    local completed = Quests.CompleteQuest(player, quest.id, "debug_completion_modal")
+    if not completed then
+        return nil
+    end
+
+    if Quests.GetQuest then
+        return Quests.GetQuest(player, quest.id) or quest
+    end
+
+    return quest
 end
 
 function Quests.DumpState(player)

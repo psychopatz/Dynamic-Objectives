@@ -127,6 +127,11 @@ function DO_DebugWindow:createChildren()
     self.btnQuestConversation:initialise()
     self:addChild(self.btnQuestConversation)
 
+    self.btnMissionCompleteModal = ISButton:new(0, 0, 80, self.buttonH, "Test Completion Modal", self, self.onTestCompletionModal)
+    self.btnMissionCompleteModal:initialise()
+    self.btnMissionCompleteModal.backgroundColor = { r = 0.1, g = 0.35, b = 0.5, a = 1.0 }
+    self:addChild(self.btnMissionCompleteModal)
+
     self.lblTracked = ISLabel:new(0, 0, 18, "Tracked: None", 1, 1, 1, 1, UIFont.Small, true)
     self.lblTracked:initialise()
     self:addChild(self.lblTracked)
@@ -181,6 +186,7 @@ function DO_DebugWindow:getContentWidth()
         measureText(UIFont.Small, "Force Trader Help Escort"),
         measureText(UIFont.Small, "Open Mission Viewer"),
         measureText(UIFont.Small, "Preview Quest Conversation"),
+        measureText(UIFont.Small, "Test Completion Modal"),
         measureText(UIFont.Small, "Locate Selected")
     ) + 28
     local rowWidth = (buttonTextWidth * 2) + self.gap + (self.pad * 2)
@@ -279,6 +285,11 @@ function DO_DebugWindow:layoutChildren()
     self.btnQuestConversation:setX(x)
     self.btnQuestConversation:setY(y)
     self.btnQuestConversation:setWidth(fullW)
+    y = y + buttonH + gap
+
+    self.btnMissionCompleteModal:setX(x)
+    self.btnMissionCompleteModal:setY(y)
+    self.btnMissionCompleteModal:setWidth(fullW)
     y = y + buttonH + 10
 
     self.lblTracked:setX(x)
@@ -463,6 +474,38 @@ function DO_DebugWindow:onOpenQuestConversationPreview()
 
     if player.Say then
         player:Say("Quest conversation preview unavailable.")
+    end
+end
+
+function DO_DebugWindow:onTestCompletionModal()
+    local player = getLocalPlayer()
+    if not player then
+        return
+    end
+
+    if DO_CompletionModal and DO_CompletionModal.initializedCompletionBaseline ~= true and DO_CompletionModal.ProcessLatestCompletedQuest then
+        DO_CompletionModal.ProcessLatestCompletedQuest(player)
+    end
+
+    local quest = DynamicObjectives.Quests
+        and DynamicObjectives.Quests.DebugSimulateQuestCompletion
+        and DynamicObjectives.Quests.DebugSimulateQuestCompletion(player, self.debugDifficulty, self.debugTimeLimitHours)
+        or nil
+
+    if quest and DO_CompletionModal and DO_CompletionModal.ProcessLatestCompletedQuest then
+        DO_CompletionModal.ProcessLatestCompletedQuest(player)
+        self:refreshQuestList()
+        return
+    end
+
+    if quest and DO_CompletionModal and DO_CompletionModal.Open then
+        DO_CompletionModal.Open(quest)
+        self:refreshQuestList()
+        return
+    end
+
+    if player.Say then
+        player:Say("Completion modal simulation unavailable.")
     end
 end
 
