@@ -379,10 +379,44 @@ local function gatherLiveZoneState(player, quest, objective)
         areaClear = false
     end
 
+    local totalZombies = math.max(0, nearbyCount)
+    local clearedZombies = 0
+    if encounter and encounter.spawned == true then
+        encounter.clearBaselineCount = math.max(
+            0,
+            math.floor(
+                tonumber(encounter.clearBaselineCount)
+                    or tonumber(encounter.maxNearbyZombies)
+                    or tonumber(encounter.spawnedCount)
+                    or tonumber(encounter.count)
+                    or 0
+            )
+        )
+        encounter.maxNearbyZombies = math.max(
+            encounter.clearBaselineCount,
+            math.floor(tonumber(encounter.maxNearbyZombies) or 0),
+            nearbyCount,
+            math.floor(tonumber(encounter.spawnedCount) or 0),
+            math.floor(tonumber(encounter.count) or 0)
+        )
+        if playerPresent == true or nearbyCount > 0 then
+            encounter.clearBaselineCount = math.max(encounter.clearBaselineCount, encounter.maxNearbyZombies)
+        end
+        totalZombies = math.max(
+            math.floor(tonumber(encounter.clearBaselineCount) or 0),
+            math.floor(tonumber(encounter.spawnedCount) or 0),
+            math.floor(tonumber(encounter.count) or 0),
+            nearbyCount
+        )
+        clearedZombies = math.max(0, totalZombies - nearbyCount)
+    end
+
     return {
         location = location,
         clearRadius = clearRadius,
         nearbyZombies = nearbyCount,
+        totalZombies = totalZombies,
+        clearedZombies = clearedZombies,
         playerPresent = playerPresent,
         areaClear = areaClear,
         encounterSpawned = encounter and encounter.spawned == true or false,
@@ -456,6 +490,14 @@ local function buildAreaClearText(zoneState)
 
     if zoneState.playerPresent ~= true then
         return "Return to the marked zone"
+    end
+
+    if math.max(0, tonumber(zoneState.totalZombies) or 0) > 0 then
+        return string.format(
+            "Nearby zeds: %d / %d",
+            math.max(0, tonumber(zoneState.nearbyZombies) or 0),
+            math.max(0, tonumber(zoneState.totalZombies) or 0)
+        )
     end
 
     return string.format("Nearby zeds: %d", math.max(0, tonumber(zoneState.nearbyZombies) or 0))

@@ -163,6 +163,52 @@ end
 
 local function buildPrimaryProgress(quest, zoneState, activeKillObjective)
     if activeKillObjective then
+        local usesZoneClearProgress = zoneState
+            and Runtime.questRequiresAreaClear
+            and Runtime.questRequiresAreaClear(quest) == true
+        if usesZoneClearProgress then
+            if zoneState.playerPresent ~= true then
+                return {
+                    label = "Secure the Building",
+                    value = "Awaiting Arrival",
+                    detail = "Move into the mission area to begin the sweep",
+                    ratio = 0,
+                    color = { r = 0.95, g = 0.62, b = 0.18 },
+                }
+            end
+
+            if quest.encounter and quest.encounter.spawned ~= true then
+                return {
+                    label = "Secure the Building",
+                    value = "Searching",
+                    detail = Runtime.buildAreaClearText(zoneState) or "Move closer to trigger the encounter",
+                    ratio = 0,
+                    color = { r = 0.95, g = 0.62, b = 0.18 },
+                }
+            end
+
+            local totalZombies = math.max(
+                1,
+                math.floor(
+                    tonumber(zoneState.totalZombies)
+                        or tonumber(activeKillObjective.required)
+                        or 1
+                )
+            )
+            local clearedZombies = math.max(0, math.floor(tonumber(zoneState.clearedZombies) or 0))
+            local nearbyZombies = math.max(0, math.floor(tonumber(zoneState.nearbyZombies) or math.max(0, totalZombies - clearedZombies)))
+            local ratio = math.max(0, math.min(1, clearedZombies / totalZombies))
+            return {
+                label = "Secure the Building",
+                value = string.format("%d / %d cleared", clearedZombies, totalZombies),
+                detail = zoneState.areaClear == true
+                    and "Area secure"
+                    or string.format("%d remaining in the area", nearbyZombies),
+                ratio = zoneState.areaClear == true and 1 or ratio,
+                color = zoneState.areaClear == true and { r = 0.34, g = 0.82, b = 0.48 } or { r = 0.86, g = 0.28, b = 0.22 },
+            }
+        end
+
         local killProgress = math.max(0, tonumber(activeKillObjective.progress) or 0)
         local killRequired = math.max(1, tonumber(activeKillObjective.required) or 1)
         local progressData = {
@@ -180,11 +226,30 @@ local function buildPrimaryProgress(quest, zoneState, activeKillObjective)
     end
 
     if zoneState then
+        local totalZombies = math.max(
+            0,
+            math.floor(
+                tonumber(zoneState.totalZombies)
+                    or tonumber(zoneState.nearbyZombies)
+                    or 0
+            )
+        )
+        local nearbyZombies = math.max(0, math.floor(tonumber(zoneState.nearbyZombies) or 0))
+        local clearedZombies = math.max(0, math.floor(tonumber(zoneState.clearedZombies) or (totalZombies - nearbyZombies)))
+        local ratio = zoneState.areaClear == true and 1 or 0
+        local detail = Runtime.buildAreaClearText(zoneState)
+        if totalZombies > 0 then
+            ratio = math.max(0, math.min(1, clearedZombies / totalZombies))
+            detail = string.format("%d / %d cleared", clearedZombies, totalZombies)
+            if zoneState.areaClear ~= true then
+                detail = detail .. " | " .. tostring(Runtime.buildAreaClearText(zoneState) or "")
+            end
+        end
         return {
             label = "Zone Status",
             value = zoneState.areaClear == true and "Secure" or "Active",
-            detail = Runtime.buildAreaClearText(zoneState),
-            ratio = zoneState.areaClear == true and 1 or 0,
+            detail = detail,
+            ratio = ratio,
             color = zoneState.areaClear == true and { r = 0.34, g = 0.82, b = 0.48 } or { r = 0.95, g = 0.62, b = 0.18 },
         }
     end

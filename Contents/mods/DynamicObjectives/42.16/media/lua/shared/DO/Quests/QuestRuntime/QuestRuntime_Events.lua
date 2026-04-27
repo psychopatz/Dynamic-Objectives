@@ -395,6 +395,50 @@ local function completeEncounterObjectives(quest)
     return changed
 end
 
+local function syncEncounterKillObjectiveFromZoneState(quest, objective, zoneState)
+    if not quest or not objective or objective.type ~= "kill" or objective.encounterOnly ~= true then
+        return false
+    end
+
+    if not zoneState or zoneState.encounterSpawned ~= true or zoneState.playerPresent ~= true then
+        return false
+    end
+
+    if Runtime.questRequiresAreaClear and Runtime.questRequiresAreaClear(quest) ~= true then
+        return false
+    end
+
+    local totalZombies = math.max(
+        1,
+        math.floor(
+            tonumber(zoneState.totalZombies)
+                or tonumber(objective.required)
+                or 1
+        )
+    )
+    local clearedZombies = math.max(0, math.floor(tonumber(zoneState.clearedZombies) or 0))
+    local progress = math.min(totalZombies, clearedZombies)
+    local completed = zoneState.areaClear == true or progress >= totalZombies
+    local changed = false
+
+    if tonumber(objective.required) ~= totalZombies then
+        objective.required = totalZombies
+        changed = true
+    end
+
+    if tonumber(objective.progress) ~= progress then
+        objective.progress = progress
+        changed = true
+    end
+
+    if objective.completed ~= completed then
+        objective.completed = completed
+        changed = true
+    end
+
+    return changed
+end
+
 function Quests.OnZombieKilled(player, zombie)
     local store = Runtime.getStore(player, true)
     if not store or not zombie then
@@ -503,15 +547,23 @@ function Quests.OnPlayerQuestUpdate(player)
                         end
                     end
 
+                    if objective.type == "kill" then
+                        zoneState = zoneState or Quests.GetEncounterStatus(player, quest)
+                        if syncEncounterKillObjectiveFromZoneState(quest, objective, zoneState) then
+                            changed = true
+                        end
+                    end
+
                     if objective.type == "obtainDrop" then
                         local count = Runtime.countObjectiveDropItems(player, quest.id, objective.id)
-                        local targetProgress = math.min(math.max(1, tonumber(objective.required) or 1), math.max(0, tonumber(count) or 0))
+                        local requiredCount = math.max(1, tonumber(objective.required) or 1)
+                        local targetProgress = math.min(requiredCount, math.max(0, tonumber(count) or 0))
                         if targetProgress ~= tonumber(objective.progress) then
                             objective.progress = targetProgress
                             changed = true
                         end
 
-                        if count >= math.max(1, tonumber(objective.required) or 1) then
+                        if count >= requiredCount then
                             changed = Runtime.markObjectiveCompleted(objective) or changed
                             if objective.completeRemainingObjectives == true then
                                 changed = Runtime.completeObjectivesAfter(quest, objective.id) or changed
@@ -528,6 +580,16 @@ function Quests.OnPlayerQuestUpdate(player)
                                 return
                             end
                             changed = true
+                        else
+                            zoneState = zoneState or Quests.GetEncounterStatus(player, quest)
+                            if zoneState
+                                and zoneState.areaClear == true
+                                and DO.Loot
+                                and DO.Loot.EnsureQuestCorpseDropInArea
+                                and DO.Loot.EnsureQuestCorpseDropInArea(player, quest, objective, zoneState)
+                            then
+                                changed = true
+                            end
                         end
                     elseif objective.type == "areaClear" then
                         zoneState = zoneState or Quests.GetEncounterStatus(player, quest)

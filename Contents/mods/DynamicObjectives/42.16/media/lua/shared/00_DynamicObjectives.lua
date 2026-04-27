@@ -149,6 +149,10 @@ function DO.NotifyStateChanged(player)
         return
     end
 
+    if DO.ZombieTargetResolver and DO.ZombieTargetResolver.ClearAll then
+        DO.ZombieTargetResolver.ClearAll()
+    end
+
     if DO.MapMarkers and DO.MapMarkers.RequestFullRefresh then
         DO.MapMarkers.RequestFullRefresh()
     end
@@ -159,6 +163,22 @@ function DO.NotifyStateChanged(player)
 
     if DO.ClearIndicators and DO.ClearIndicators.RequestFullRefresh then
         DO.ClearIndicators.RequestFullRefresh()
+    end
+
+    if DO.MapMarkers and DO.MapMarkers.Refresh then
+        DO.MapMarkers.Refresh(player)
+    end
+
+    if DO.WorldMarkers and DO.WorldMarkers.Refresh then
+        DO.WorldMarkers.Refresh(player)
+    end
+
+    if DO.ClearIndicators and DO.ClearIndicators.Refresh then
+        DO.ClearIndicators.Refresh(player)
+    end
+
+    if DO_CompletionModal and DO_CompletionModal.ProcessLatestCompletedQuest then
+        DO_CompletionModal.ProcessLatestCompletedQuest(player)
     end
 
     if DT_RadioScannerWindow and DT_RadioScannerWindow.instance and DT_RadioScannerWindow.instance.currentCategory == "Quest" then

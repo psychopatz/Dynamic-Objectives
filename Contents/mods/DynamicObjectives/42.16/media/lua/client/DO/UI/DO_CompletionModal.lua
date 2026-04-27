@@ -566,9 +566,11 @@ local function processLatestCompletedQuest(player)
 
     if DO_CompletionModal.initializedCompletionBaseline ~= true then
         DO_CompletionModal.initializedCompletionBaseline = true
-        DO_CompletionModal.lastCompletedQuestID = quest.id
-        DO_CompletionModal.lastCompletedAt = completedAt
-        return nil
+        if DO_CompletionModal.sessionStartedAt > 0 and completedAt < DO_CompletionModal.sessionStartedAt then
+            DO_CompletionModal.lastCompletedQuestID = quest.id
+            DO_CompletionModal.lastCompletedAt = completedAt
+            return nil
+        end
     end
 
     if DO_CompletionModal.sessionStartedAt > 0 and completedAt < DO_CompletionModal.sessionStartedAt then
