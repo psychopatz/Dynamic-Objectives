@@ -49,7 +49,7 @@ DO.RegisterQuestBlueprint("resting_hunt_drop", {
         killLabel = "Purge the marked cluster",
         dropLabel = "Recover the sample",
         spawnAfterKills = 4,
-        completeRemainingObjectives = true,
-        completeQuestOnComplete = true,
+        skipAreaClearOnComplete = true,
+        completeEncounterObjectivesOnComplete = true,
     },
 })

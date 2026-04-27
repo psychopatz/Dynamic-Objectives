@@ -8,6 +8,10 @@ DO_ObjectiveHUD = ISPanel:derive("DO_ObjectiveHUD")
 DO_ObjectiveHUD.instance = DO_ObjectiveHUD.instance or nil
 
 local DO = DynamicObjectives
+local SETTINGS_FILE = "DynamicObjectives_UI.txt"
+local SETTINGS_SECTION = "objective_tracker"
+local HEADER_HEIGHT = 34
+local DRAG_THRESHOLD = 4
 
 local function getLocalPlayer()
     if DO.GetLocalPlayer then
@@ -74,6 +78,86 @@ local function pointInRect(x, y, rect)
         and y <= (rect.y + rect.h)
 end
 
+local function parsePair(value)
+    if not value or value == "" then
+        return nil, nil
+    end
+
+    local parts = {}
+    for part in string.gmatch(tostring(value), "([^,]+)") do
+        parts[#parts + 1] = tonumber(part)
+    end
+
+    if #parts ~= 2 or not parts[1] or not parts[2] then
+        return nil, nil
+    end
+
+    return math.floor(parts[1]), math.floor(parts[2])
+end
+
+function DO_ObjectiveHUD:loadPersistedState()
+    self.persisted = {
+        collapsedX = nil,
+        collapsedY = nil,
+        expandedX = nil,
+        expandedY = nil,
+        pinnedOpen = false,
+    }
+
+    local reader = getFileReader and getFileReader(SETTINGS_FILE, false) or nil
+    if not reader then
+        return
+    end
+
+    local prefix = SETTINGS_SECTION .. "."
+    local line = reader:readLine()
+    while line do
+        local key, value = string.match(line, "^([^=]+)=(.*)$")
+        if key and value and string.sub(key, 1, #prefix) == prefix then
+            local field = string.sub(key, #prefix + 1)
+            if field == "collapsed" then
+                self.persisted.collapsedX, self.persisted.collapsedY = parsePair(value)
+            elseif field == "expanded" then
+                self.persisted.expandedX, self.persisted.expandedY = parsePair(value)
+            elseif field == "pinned" then
+                self.persisted.pinnedOpen = tostring(value) == "true"
+            end
+        end
+        line = reader:readLine()
+    end
+    reader:close()
+end
+
+function DO_ObjectiveHUD:savePersistedState()
+    if not self.persisted or not getFileWriter then
+        return
+    end
+
+    if self.persisted.collapsedX == nil or self.persisted.collapsedY == nil then
+        self.persisted.collapsedX, self.persisted.collapsedY = self:getDefaultCollapsedPosition()
+    end
+    if self.persisted.expandedX == nil or self.persisted.expandedY == nil then
+        self.persisted.expandedX, self.persisted.expandedY = self:getDefaultExpandedPosition()
+    end
+
+    local writer = getFileWriter(SETTINGS_FILE, true, false)
+    if not writer then
+        return
+    end
+
+    writer:write(string.format("%s.collapsed=%d,%d\r\n", SETTINGS_SECTION, math.floor(self.persisted.collapsedX or 0), math.floor(self.persisted.collapsedY or 0)))
+    writer:write(string.format("%s.expanded=%d,%d\r\n", SETTINGS_SECTION, math.floor(self.persisted.expandedX or 0), math.floor(self.persisted.expandedY or 0)))
+    writer:write(string.format("%s.pinned=%s\r\n", SETTINGS_SECTION, tostring(self.pinnedOpen == true)))
+    writer:close()
+end
+
+function DO_ObjectiveHUD:getPinTexture()
+    if self.pinnedOpen == true then
+        return self.toggleOnOverTexture or self.toggleOnTexture
+    end
+    return self.toggleOffOverTexture or self.toggleOffTexture
+end
+
 function DO_ObjectiveHUD:initialise()
     ISPanel.initialise(self)
 end
@@ -83,7 +167,7 @@ function DO_ObjectiveHUD:createChildren()
 end
 
 function DO_ObjectiveHUD:isExpanded()
-    return self.data ~= nil and (self.pinnedOpen == true or self.mouseOver == true)
+    return self.data ~= nil and (self.windowOpen == true or self.pinnedOpen == true)
 end
 
 function DO_ObjectiveHUD:measureExpandedSize()
@@ -93,14 +177,14 @@ function DO_ObjectiveHUD:measureExpandedSize()
     end
 
     local screenW = core:getScreenWidth()
-    local scale = clamp(screenW / 1920, 0.85, 1.2)
     local xPad = 14
     local bodyWidth = 300
     local data = self.data or {}
     local locateLabel = data.located == true and "UNLOCATE" or "LOCATE"
-    local buttonWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
+    local locateWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
     local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
-    local baseHeaderWidth = 56 + buttonWidth + missionsWidth + 12
+    local pinWidth = 34
+    local baseHeaderWidth = 64 + locateWidth + missionsWidth + pinWidth + 18
 
     bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.title or data.name or "Objective") + baseHeaderWidth)
     if data.giverName and data.giverName ~= "" then
@@ -144,8 +228,7 @@ function DO_ObjectiveHUD:measureExpandedSize()
     end
 
     local width = clamp(bodyWidth + (xPad * 2), 320, math.min(520, screenW - 40))
-    local height = 52
-    height = height + 24
+    local height = 52 + 24
     if data.chainSummary and data.chainSummary ~= "" then
         height = height + 18
     end
@@ -170,11 +253,83 @@ function DO_ObjectiveHUD:measureExpandedSize()
     if data.primaryProgress then
         height = height + 62
     end
-    height = height + 18
-    height = height + (#(data.lines or {}) * 28)
+    height = height + 18 + (#(data.lines or {}) * 28)
     height = clamp(height + 16, 220, 700)
 
     return width, height
+end
+
+function DO_ObjectiveHUD:getDefaultCollapsedPosition()
+    local core = getCore and getCore() or nil
+    if not core then
+        return 20, 72
+    end
+
+    local screenW = core:getScreenWidth()
+    local screenH = core:getScreenHeight()
+    local scale = clamp(screenW / 1920, 0.85, 1.2)
+    return screenW - self.collapsedSize - math.floor(18 * scale), math.max(72, math.floor(screenH * 0.1))
+end
+
+function DO_ObjectiveHUD:getDefaultExpandedPosition()
+    local core = getCore and getCore() or nil
+    if not core then
+        return 20, 72
+    end
+
+    local screenW = core:getScreenWidth()
+    local screenH = core:getScreenHeight()
+    local scale = clamp(screenW / 1920, 0.85, 1.2)
+    return screenW - self.expandedWidth - math.floor(18 * scale), math.max(72, math.floor(screenH * 0.1))
+end
+
+function DO_ObjectiveHUD:clampPosition(x, y, width, height)
+    local core = getCore and getCore() or nil
+    if not core then
+        return x, y
+    end
+
+    local screenW = core:getScreenWidth()
+    local screenH = core:getScreenHeight()
+    local maxX = math.max(0, screenW - width - 8)
+    local maxY = math.max(0, screenH - height - 8)
+    return clamp(math.floor(x or 0), 0, maxX), clamp(math.floor(y or 0), 0, maxY)
+end
+
+function DO_ObjectiveHUD:getAnchoredPosition(expanded)
+    local width = expanded and self.expandedWidth or self.collapsedSize
+    local height = expanded and self.expandedHeight or self.collapsedSize
+    local posX, posY
+
+    if expanded then
+        posX = self.persisted and self.persisted.expandedX or nil
+        posY = self.persisted and self.persisted.expandedY or nil
+        if posX == nil or posY == nil then
+            posX, posY = self:getDefaultExpandedPosition()
+        end
+    else
+        posX = self.persisted and self.persisted.collapsedX or nil
+        posY = self.persisted and self.persisted.collapsedY or nil
+        if posX == nil or posY == nil then
+            posX, posY = self:getDefaultCollapsedPosition()
+        end
+    end
+
+    return self:clampPosition(posX, posY, width, height)
+end
+
+function DO_ObjectiveHUD:storeCurrentPosition()
+    if not self.persisted then
+        return
+    end
+
+    if self:isExpanded() then
+        self.persisted.expandedX = math.floor(self:getX())
+        self.persisted.expandedY = math.floor(self:getY())
+    else
+        self.persisted.collapsedX = math.floor(self:getX())
+        self.persisted.collapsedY = math.floor(self:getY())
+    end
 end
 
 function DO_ObjectiveHUD:syncLayout()
@@ -184,7 +339,6 @@ function DO_ObjectiveHUD:syncLayout()
     end
 
     local screenW = core:getScreenWidth()
-    local screenH = core:getScreenHeight()
     local scale = clamp(screenW / 1920, 0.85, 1.2)
     local collapsedSize = clamp(math.floor(42 * scale), 38, 52)
     local expandedWidth, expandedHeight = self:measureExpandedSize()
@@ -194,10 +348,20 @@ function DO_ObjectiveHUD:syncLayout()
     self.expandedWidth = expandedWidth
     self.expandedHeight = expandedHeight
 
-    self:setWidth(expanded and expandedWidth or collapsedSize)
-    self:setHeight(expanded and expandedHeight or collapsedSize)
-    self:setX(screenW - self.width - math.floor(18 * scale))
-    self:setY(math.max(72, math.floor(screenH * 0.1)))
+    local width = expanded and expandedWidth or collapsedSize
+    local height = expanded and expandedHeight or collapsedSize
+    self:setWidth(width)
+    self:setHeight(height)
+
+    if not self.isDragging then
+        local x, y = self:getAnchoredPosition(expanded)
+        self:setX(x)
+        self:setY(y)
+    else
+        local x, y = self:clampPosition(self:getX(), self:getY(), width, height)
+        self:setX(x)
+        self:setY(y)
+    end
 end
 
 function DO_ObjectiveHUD:syncFromQuest()
@@ -205,6 +369,9 @@ function DO_ObjectiveHUD:syncFromQuest()
     local data = player and DO.Quests and DO.Quests.GetTrackedObjectiveUIData and DO.Quests.GetTrackedObjectiveUIData(player) or nil
     self.data = data
     self.hitAreas = {}
+    if not data then
+        self.windowOpen = false
+    end
     self:setVisible(data ~= nil)
     self:syncLayout()
 end
@@ -218,22 +385,6 @@ function DO_ObjectiveHUD:update()
     else
         self:syncLayout()
     end
-end
-
-function DO_ObjectiveHUD:onMouseMove(dx, dy)
-    if self.mouseOver ~= true then
-        self.mouseOver = true
-        self:syncLayout()
-    end
-    return ISPanel.onMouseMove(self, dx, dy)
-end
-
-function DO_ObjectiveHUD:onMouseMoveOutside(dx, dy)
-    if self.mouseOver ~= false then
-        self.mouseOver = false
-        self:syncLayout()
-    end
-    return ISPanel.onMouseMoveOutside(self, dx, dy)
 end
 
 function DO_ObjectiveHUD:onLocateQuest()
@@ -250,7 +401,81 @@ function DO_ObjectiveHUD:onOpenMissionViewer()
     end
 end
 
-function DO_ObjectiveHUD:onMouseUp(x, y)
+function DO_ObjectiveHUD:onTogglePinned()
+    self.pinnedOpen = not self.pinnedOpen
+    if self.pinnedOpen == true then
+        self.windowOpen = true
+    end
+    self:savePersistedState()
+    self:syncLayout()
+end
+
+function DO_ObjectiveHUD:isDragZone(x, y)
+    if not self.data then
+        return false
+    end
+
+    if not self:isExpanded() then
+        return true
+    end
+
+    if y > HEADER_HEIGHT then
+        return false
+    end
+
+    return not pointInRect(x, y, self.hitAreas.locate)
+        and not pointInRect(x, y, self.hitAreas.missions)
+        and not pointInRect(x, y, self.hitAreas.pin)
+end
+
+function DO_ObjectiveHUD:beginDragCandidate()
+    self.dragPending = true
+    self.dragAccumX = 0
+    self.dragAccumY = 0
+    self.isDragging = false
+    if self.setCapture then
+        self:setCapture(true)
+    end
+end
+
+function DO_ObjectiveHUD:updateDrag(dx, dy)
+    if self.dragPending ~= true then
+        return false
+    end
+
+    self.dragAccumX = (tonumber(self.dragAccumX) or 0) + (tonumber(dx) or 0)
+    self.dragAccumY = (tonumber(self.dragAccumY) or 0) + (tonumber(dy) or 0)
+
+    if self.isDragging ~= true then
+        if math.abs(self.dragAccumX) < DRAG_THRESHOLD and math.abs(self.dragAccumY) < DRAG_THRESHOLD then
+            return false
+        end
+        self.isDragging = true
+    end
+
+    local nextX, nextY = self:clampPosition(self:getX() + (tonumber(dx) or 0), self:getY() + (tonumber(dy) or 0), self.width, self.height)
+    self:setX(nextX)
+    self:setY(nextY)
+    self:storeCurrentPosition()
+    return true
+end
+
+function DO_ObjectiveHUD:endDrag()
+    local wasDragging = self.isDragging == true
+    self.dragPending = false
+    self.isDragging = false
+    self.dragAccumX = 0
+    self.dragAccumY = 0
+    if self.setCapture then
+        self:setCapture(false)
+    end
+    if wasDragging then
+        self:savePersistedState()
+    end
+    return wasDragging
+end
+
+function DO_ObjectiveHUD:handleClick(x, y)
     if not self.data then
         return false
     end
@@ -264,11 +489,66 @@ function DO_ObjectiveHUD:onMouseUp(x, y)
             self:onOpenMissionViewer()
             return true
         end
+        if pointInRect(x, y, self.hitAreas.pin) then
+            self:onTogglePinned()
+            return true
+        end
+        if self.pinnedOpen ~= true then
+            self.windowOpen = false
+            self:syncLayout()
+            return true
+        end
+        return true
     end
 
-    self.pinnedOpen = not self.pinnedOpen
+    self.windowOpen = true
     self:syncLayout()
     return true
+end
+
+function DO_ObjectiveHUD:onMouseDown(x, y)
+    if not self.data then
+        return false
+    end
+
+    if self:isDragZone(x, y) then
+        self:beginDragCandidate()
+        return true
+    end
+
+    return true
+end
+
+function DO_ObjectiveHUD:onMouseMove(dx, dy)
+    if self:updateDrag(dx, dy) then
+        return true
+    end
+    return ISPanel.onMouseMove(self, dx, dy)
+end
+
+function DO_ObjectiveHUD:onMouseMoveOutside(dx, dy)
+    if self:updateDrag(dx, dy) then
+        return true
+    end
+    return ISPanel.onMouseMoveOutside(self, dx, dy)
+end
+
+function DO_ObjectiveHUD:onMouseUp(x, y)
+    if not self.data then
+        self:endDrag()
+        return false
+    end
+
+    if self:endDrag() then
+        return true
+    end
+
+    return self:handleClick(x, y)
+end
+
+function DO_ObjectiveHUD:onMouseUpOutside(x, y)
+    self:endDrag()
+    return ISPanel.onMouseUpOutside(self, x, y)
 end
 
 function DO_ObjectiveHUD:prerender()
@@ -284,7 +564,7 @@ function DO_ObjectiveHUD:prerender()
 
     self:drawRect(0, 0, self.width, self.height, 0.78, 0.03, 0.04, 0.05)
     self:drawRectBorder(0, 0, self.width, self.height, 0.55, 0.96, 0.96, 0.96)
-    self:drawRect(0, 0, self.width, 34, 0.92, 0.11, 0.12, 0.14)
+    self:drawRect(0, 0, self.width, HEADER_HEIGHT, 0.92, 0.11, 0.12, 0.14)
 end
 
 function DO_ObjectiveHUD:drawHeaderButton(x, y, width, height, label, active)
@@ -293,6 +573,20 @@ function DO_ObjectiveHUD:drawHeaderButton(x, y, width, height, label, active)
     self:drawRect(x, y, width, height, 0.92, fill.r, fill.g, fill.b)
     self:drawRectBorder(x, y, width, height, 0.6, border.r, border.g, border.b)
     self:drawTextCentre(label, x + (width / 2), y + 4, 0.96, 0.96, 0.96, 0.98, UIFont.Small)
+end
+
+function DO_ObjectiveHUD:drawPinToggle(x, y, width, height)
+    self:drawRect(x, y, width, height, 0.9, 0.12, 0.13, 0.15)
+    self:drawRectBorder(x, y, width, height, 0.55, 0.84, 0.84, 0.84)
+
+    local texture = self:getPinTexture()
+    if texture then
+        self:drawTextureScaled(texture, x + 5, y + 3, width - 10, height - 6, 0.98, 1, 1, 1)
+        return
+    end
+
+    local fill = self.pinnedOpen == true and { r = 0.3, g = 0.8, b = 0.34 } or { r = 0.42, g = 0.42, b = 0.42 }
+    self:drawRect(x + 6, y + 6, width - 12, height - 12, 0.95, fill.r, fill.g, fill.b)
 end
 
 function DO_ObjectiveHUD:renderCollapsed()
@@ -317,12 +611,15 @@ function DO_ObjectiveHUD:renderExpanded()
     local locateLabel = self.data.located == true and "UNLOCATE" or "LOCATE"
     local locateWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
     local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
+    local pinWidth = 34
     local buttonY = 5
     local buttonH = 22
     local locateX = titleRight - locateWidth
     local missionsX = locateX - 6 - missionsWidth
+    local pinX = missionsX - 6 - pinWidth
 
     self.hitAreas = {
+        pin = { x = pinX, y = buttonY, w = pinWidth, h = buttonH },
         missions = { x = missionsX, y = buttonY, w = missionsWidth, h = buttonH },
         locate = { x = locateX, y = buttonY, w = locateWidth, h = buttonH },
     }
@@ -332,6 +629,7 @@ function DO_ObjectiveHUD:renderExpanded()
     end
 
     self:drawText("OBJECTIVE TRACKER", x + 28, y, 0.95, 0.82, 0.52, 0.98, UIFont.Small)
+    self:drawPinToggle(pinX, buttonY, pinWidth, buttonH)
     self:drawHeaderButton(missionsX, buttonY, missionsWidth, buttonH, "MISSIONS", false)
     self:drawHeaderButton(locateX, buttonY, locateWidth, buttonH, locateLabel, self.data.located == true)
 
@@ -491,11 +789,22 @@ function DO_ObjectiveHUD:new(x, y, width, height)
     o.moveWithMouse = false
     o.refreshTick = 0
     o.data = nil
-    o.mouseOver = false
-    o.pinnedOpen = false
-    o.iconTexture = getTexture("media/ui/Icon_MarketInfo.png")
     o.hitAreas = {}
+    o.windowOpen = false
+    o.pinnedOpen = false
+    o.dragPending = false
+    o.isDragging = false
+    o.dragAccumX = 0
+    o.dragAccumY = 0
+    o.iconTexture = getTexture("media/ui/Icon_MarketInfo.png")
+    o.toggleOnTexture = getTexture("media/ui/Entity/widget_toggle_on.png")
+    o.toggleOnOverTexture = getTexture("media/ui/Entity/widget_toggle_on_over.png")
+    o.toggleOffTexture = getTexture("media/ui/Entity/widget_toggle_off.png")
+    o.toggleOffOverTexture = getTexture("media/ui/Entity/widget_toggle_off_over.png")
     o:setVisible(false)
+    o:setCapture(false)
+    o:loadPersistedState()
+    o.pinnedOpen = o.persisted and o.persisted.pinnedOpen == true or false
     return o
 end
 

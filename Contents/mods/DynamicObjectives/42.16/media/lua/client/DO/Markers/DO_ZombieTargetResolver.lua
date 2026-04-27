@@ -36,11 +36,22 @@ local function getObjectiveRemainingCount(objective)
     end
 
     if objective.type == "obtainDrop" then
-        if objective.dropState and objective.dropState.spawned == true then
+        local progress = math.max(0, math.floor(tonumber(objective.progress) or 0))
+        local required = math.max(1, math.floor(tonumber(objective.required) or 1))
+        local spawnedCount = math.max(
+            0,
+            math.floor(
+                tonumber(objective.dropState and objective.dropState.spawnedCount)
+                    or ((objective.dropState and objective.dropState.spawned == true) and 1 or 0)
+            )
+        )
+
+        if progress >= required or spawnedCount > progress then
             return 0
         end
 
-        return math.max(0, math.floor((tonumber(objective.spawnAfterKills) or 0) - (tonumber(objective.killProgress) or 0)))
+        local nextThreshold = math.max(1, math.floor(tonumber(objective.spawnAfterKills) or 1)) * (spawnedCount + 1)
+        return math.max(0, nextThreshold - math.max(0, math.floor(tonumber(objective.killProgress) or 0)))
     end
 
     return 0

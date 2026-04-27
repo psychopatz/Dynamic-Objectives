@@ -252,9 +252,20 @@ local function getLocalPlayer()
 end
 
 local function playCompletionSound(player)
+    if DT_AudioManager and DT_AudioManager.PlayUISound then
+        DT_AudioManager.PlayUISound(COMPLETION_SOUND, 1.0)
+        return
+    end
+
     local emitter = player and player.getEmitter and player:getEmitter() or nil
     if emitter and emitter.playSound then
         emitter:playSound(COMPLETION_SOUND)
+        return
+    end
+
+    local soundManager = getSoundManager and getSoundManager() or nil
+    if soundManager and soundManager.PlaySound then
+        soundManager:PlaySound(COMPLETION_SOUND, false, 1.0)
     end
 end
 

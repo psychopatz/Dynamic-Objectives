@@ -60,6 +60,15 @@ local function normalizeObjective(index, quest, objective)
     )
     normalized.targetLocation = Runtime.normalizeLocation(normalized.targetLocation)
     normalized.dropState = type(normalized.dropState) == "table" and normalized.dropState or {}
+    normalized.dropState.spawnedCount = math.max(
+        0,
+        math.floor(
+            tonumber(normalized.dropState.spawnedCount)
+                or ((normalized.dropState.spawned == true) and 1 or 0)
+        )
+    )
+    normalized.dropState.spawned = normalized.dropState.spawnedCount > 0
+    normalized.dropState.spawnedAt = tonumber(normalized.dropState.spawnedAt) or nil
     normalized.spawnAfterKillsBase = math.max(
         1,
         math.floor(tonumber(normalized.spawnAfterKillsBase or normalized.spawnAfterKills) or normalized.requiredBase)
@@ -73,6 +82,7 @@ local function normalizeObjective(index, quest, objective)
     normalized.questItemType = normalized.questItemType and tostring(normalized.questItemType) or nil
     normalized.completeQuestOnComplete = normalized.completeQuestOnComplete == true
     normalized.completeRemainingObjectives = normalized.completeRemainingObjectives == true or normalized.completeQuestOnComplete == true
+    normalized.completeEncounterObjectivesOnComplete = normalized.completeEncounterObjectivesOnComplete == true
     normalized.skipAreaClearOnComplete = normalized.skipAreaClearOnComplete == true
     return normalized
 end
@@ -92,9 +102,11 @@ local function syncEncounterObjectiveCounts(quest)
             objective.completed = objective.progress >= objective.required
         elseif objective.type == "obtainDrop" then
             local baseKills = math.max(1, math.floor(tonumber(objective.spawnAfterKillsBase or objective.spawnAfterKills) or 1))
+            local dropRequired = math.max(1, math.floor(tonumber(objective.required) or 1))
+            local distributedKills = math.max(1, math.floor(encounterCount / dropRequired))
             objective.spawnAfterKills = math.min(
                 encounterCount,
-                math.max(1, math.floor((baseKills * encounterScale) + 0.5))
+                math.max(1, math.min(math.floor((baseKills * encounterScale) + 0.5), distributedKills))
             )
         end
     end

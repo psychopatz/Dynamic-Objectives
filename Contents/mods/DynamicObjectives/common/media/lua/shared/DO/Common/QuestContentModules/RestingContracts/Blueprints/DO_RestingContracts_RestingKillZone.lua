@@ -46,6 +46,6 @@ DO.RegisterQuestBlueprint("resting_kill_zone", {
     dialogueTree = "default_killzone_dialogue",
     objective = {
         id = "kill_zone",
-        label = "Eliminate the infestation",
+        label = "Secure the building",
     },
 })

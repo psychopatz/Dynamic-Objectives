@@ -40,7 +40,12 @@ local function humanizeID(value)
         return nil
     end
     return (text:gsub("(%a)([%w']*)", function(first, rest)
-        return string.upper(first) .. string.lower(rest)
+        local head = tostring(first or "")
+        local tail = tostring(rest or "")
+        if head == "" then
+            return tail
+        end
+        return string.upper(head) .. string.lower(tail)
     end))
 end
 

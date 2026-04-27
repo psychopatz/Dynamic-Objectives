@@ -357,6 +357,44 @@ local function shouldCompleteQuest(player, quest)
     return zoneState and zoneState.areaClear == true
 end
 
+local function getObjectiveDropSpawnedCount(objective)
+    local dropState = objective and objective.dropState or nil
+    return math.max(
+        0,
+        math.floor(tonumber(dropState and dropState.spawnedCount) or ((dropState and dropState.spawned == true) and 1 or 0))
+    )
+end
+
+local function getNextDropSpawnThreshold(objective)
+    if not objective then
+        return math.huge
+    end
+
+    local required = math.max(1, math.floor(tonumber(objective.required) or 1))
+    local spawnedCount = getObjectiveDropSpawnedCount(objective)
+    if spawnedCount >= required then
+        return math.huge
+    end
+
+    local spawnEvery = math.max(1, math.floor(tonumber(objective.spawnAfterKills) or 1))
+    return spawnEvery * (spawnedCount + 1)
+end
+
+local function completeEncounterObjectives(quest)
+    if not quest then
+        return false
+    end
+
+    local changed = false
+    for _, objective in ipairs(quest.objectives or {}) do
+        if objective.completed ~= true and (objective.type == "kill" or objective.type == "areaClear") and objective.encounterOnly ~= false then
+            changed = Runtime.markObjectiveCompleted(objective) or changed
+        end
+    end
+
+    return changed
+end
+
 function Quests.OnZombieKilled(player, zombie)
     local store = Runtime.getStore(player, true)
     if not store or not zombie then
@@ -384,8 +422,9 @@ function Quests.OnZombieKilled(player, zombie)
                             objective.killProgress = math.max(0, math.floor(tonumber(objective.killProgress) or 0)) + 1
                             changed = true
 
-                            local prerequisiteReady = objective.killProgress >= objective.spawnAfterKills
-                            if prerequisiteReady and not objective.dropState.spawned and DO.Loot and DO.Loot.SpawnQuestCorpseDrop then
+                            local nextSpawnThreshold = getNextDropSpawnThreshold(objective)
+                            local prerequisiteReady = objective.killProgress >= nextSpawnThreshold
+                            if prerequisiteReady and DO.Loot and DO.Loot.SpawnQuestCorpseDrop then
                                 if DO.Loot.SpawnQuestCorpseDrop(zombie, player, quest, objective) then
                                     changed = true
                                 end
@@ -431,6 +470,7 @@ function Quests.OnPlayerQuestUpdate(player)
 
     for _, quest in ipairs(store.quests or {}) do
         if quest.status == "active" then
+            local zoneState = nil
             local remainingHours = Runtime.getQuestRemainingHours(quest)
             if remainingHours ~= nil and remainingHours <= 0 then
                 Quests.FailQuest(player, quest.id, "time_expired")
@@ -465,10 +505,22 @@ function Quests.OnPlayerQuestUpdate(player)
 
                     if objective.type == "obtainDrop" then
                         local count = Runtime.countObjectiveDropItems(player, quest.id, objective.id)
-                        if count > 0 then
+                        local targetProgress = math.min(math.max(1, tonumber(objective.required) or 1), math.max(0, tonumber(count) or 0))
+                        if targetProgress ~= tonumber(objective.progress) then
+                            objective.progress = targetProgress
+                            changed = true
+                        end
+
+                        if count >= math.max(1, tonumber(objective.required) or 1) then
                             changed = Runtime.markObjectiveCompleted(objective) or changed
                             if objective.completeRemainingObjectives == true then
                                 changed = Runtime.completeObjectivesAfter(quest, objective.id) or changed
+                            end
+                            if objective.completeEncounterObjectivesOnComplete == true then
+                                changed = completeEncounterObjectives(quest) or changed
+                            end
+                            if objective.skipAreaClearOnComplete == true then
+                                quest.skipAreaClear = true
                             end
                             if objective.completeQuestOnComplete == true then
                                 quest.skipAreaClear = true
@@ -476,6 +528,11 @@ function Quests.OnPlayerQuestUpdate(player)
                                 return
                             end
                             changed = true
+                        end
+                    elseif objective.type == "areaClear" then
+                        zoneState = zoneState or Quests.GetEncounterStatus(player, quest)
+                        if zoneState and zoneState.areaClear == true then
+                            changed = Runtime.markObjectiveCompleted(objective) or changed
                         end
                     elseif objective.type == "pickupItem" then
                         local location = Runtime.questLocationFor(quest, objective)
@@ -500,12 +557,20 @@ function Quests.OnPlayerQuestUpdate(player)
                                 return true
                             end)
 
-                            if #items > 0 then
+                            local requiredCount = math.max(1, math.floor(tonumber(objective.required) or 1))
+                            local targetProgress = math.min(requiredCount, #items)
+                            if targetProgress ~= tonumber(objective.progress) then
+                                objective.progress = targetProgress
+                                changed = true
+                            end
+
+                            if #items >= requiredCount then
                                 if objective.consumeOnComplete then
-                                    Quests.RemoveInventoryItem(items[1])
+                                    for index = 1, requiredCount do
+                                        Quests.RemoveInventoryItem(items[index])
+                                    end
                                 end
-                                objective.progress = objective.required
-                                objective.completed = true
+                                changed = Runtime.markObjectiveCompleted(objective) or changed
                                 if objective.skipAreaClearOnComplete == true then
                                     quest.skipAreaClear = true
                                 end

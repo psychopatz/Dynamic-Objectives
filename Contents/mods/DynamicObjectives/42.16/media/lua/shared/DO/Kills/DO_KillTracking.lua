@@ -88,6 +88,16 @@ function Loot.SpawnQuestCorpseDrop(zombie, player, quest, objective)
         return nil
     end
 
+    objective.dropState = type(objective.dropState) == "table" and objective.dropState or {}
+    objective.dropState.spawnedCount = math.max(
+        0,
+        math.floor(tonumber(objective.dropState.spawnedCount) or ((objective.dropState.spawned == true) and 1 or 0))
+    )
+    local requiredCount = math.max(1, math.floor(tonumber(objective.required) or 1))
+    if objective.dropState.spawnedCount >= requiredCount then
+        return nil
+    end
+
     local corpseModData = zombie:getModData()
     corpseModData.DOQuestDropSpawned = type(corpseModData.DOQuestDropSpawned) == "table" and corpseModData.DOQuestDropSpawned or {}
 
@@ -111,13 +121,14 @@ function Loot.SpawnQuestCorpseDrop(zombie, player, quest, objective)
     modData.DOQuestID = quest.id
     modData.DOQuestObjectiveID = objective.id
     modData.DOQuestPlayerKey = DO.GetPlayerKey(player)
+    modData.DOQuestDropIndex = objective.dropState.spawnedCount + 1
 
     item:setName(item:getName() .. " (" .. tostring(quest.id) .. ")")
     item:setTooltip("Objective item for " .. tostring(quest.name or quest.id))
 
     corpseModData.DOQuestDropSpawned[dropKey] = true
-    objective.dropState = objective.dropState or {}
-    objective.dropState.spawned = true
+    objective.dropState.spawnedCount = objective.dropState.spawnedCount + 1
+    objective.dropState.spawned = objective.dropState.spawnedCount > 0
     objective.dropState.spawnedAt = DO.NowMs()
 
     if sendAddItemToContainer then

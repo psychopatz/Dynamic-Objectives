@@ -65,6 +65,7 @@ local function buildObjectiveLines(quest, zoneState)
     local currentObjective = nil
     local activeKillObjective = nil
     local currentObjectiveLabel = nil
+    local hasAreaClearObjective = false
 
     for index, objective in ipairs(quest.objectives or {}) do
         if not currentObjective and objective.completed ~= true then
@@ -94,12 +95,25 @@ local function buildObjectiveLines(quest, zoneState)
             line.value = string.format("%d / %d zombies", progress, required)
         elseif objective.type == "obtainDrop" then
             if objective.completed == true then
-                line.value = "Recovered"
+                line.value = string.format("%d / %d recovered", required, required)
+            elseif progress > 0 then
+                line.value = string.format("%d / %d recovered", progress, required)
+            elseif objective.dropState and objective.dropState.spawned == true then
+                line.value = "Recover the spawned sample"
             else
-                line.value = objective.dropState and objective.dropState.spawned and "Loot the marked corpse drop" or "Keep clearing the zone"
+                line.value = "Keep clearing the zone"
             end
         elseif objective.type == "deliverItem" then
-            line.value = objective.completed == true and "Delivered" or "Take the objective item to the marker"
+            if objective.completed == true then
+                line.value = string.format("%d / %d delivered", required, required)
+            elseif progress > 0 then
+                line.value = string.format("%d / %d delivered", progress, required)
+            else
+                line.value = "Take the objective item to the marker"
+            end
+        elseif objective.type == "areaClear" then
+            hasAreaClearObjective = true
+            line.value = zoneState and Runtime.buildAreaClearText(zoneState) or "Move into the mission area"
         elseif objective.type == "claimRewards" then
             line.value = objective.completed == true and "Rewards claimed" or "Meet the contact and collect your payout"
         elseif objective.type == "pickupItem" then
@@ -113,7 +127,7 @@ local function buildObjectiveLines(quest, zoneState)
         lines[#lines + 1] = line
     end
 
-    if zoneState then
+    if zoneState and not hasAreaClearObjective then
         local zoneCurrent = currentObjective == nil and zoneState.areaClear ~= true
         lines[#lines + 1] = {
             id = "zone_clear",

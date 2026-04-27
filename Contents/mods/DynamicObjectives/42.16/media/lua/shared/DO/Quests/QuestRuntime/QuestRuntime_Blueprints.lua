@@ -268,12 +268,11 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
         spec.objectives = {
             {
                 id = tostring(objectiveConfig.id or "kill_zone"),
-                type = "kill",
-                label = tostring(objectiveConfig.label or "Eliminate the infestation"),
-                required = baseCount,
+                type = "areaClear",
+                label = tostring(objectiveConfig.label or "Secure the building"),
+                required = 1,
                 radius = targetLocation.radius,
-                encounterOnly = true,
-                requireAreaClear = spec.encounter.requireAreaClear == true,
+                requireAreaClear = true,
             },
         }
     elseif family == "HuntDrop" then
@@ -285,6 +284,20 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
             traderContext and (traderContext.pickupLocation or traderContext.location or traderContext.targetLocation) or nil
         ) or Runtime.normalizeLocation(targetLocation)
         local giverName = tostring(traderContext and (traderContext.displayName or traderContext.name or traderContext.traderName) or "the quest giver")
+        local requiredSamples = math.max(
+            1,
+            math.min(
+                baseCount,
+                math.floor(
+                    tonumber(
+                        objectiveConfig.requiredSamples
+                            or objectiveConfig.sampleCount
+                            or objectiveConfig.dropRequired
+                            or objectiveConfig.required
+                    ) or 1
+                )
+            )
+        )
         spec.encounter = {
             id = tostring(encounterConfig.id or "sample_hunt_encounter"),
             kind = tostring(encounterConfig.kind or "hunt_drop"),
@@ -309,20 +322,28 @@ local function buildBaseQuestSpecFromBlueprint(player, traderContext, blueprint,
                 id = tostring(objectiveConfig.dropID or "recover_drop"),
                 type = "obtainDrop",
                 label = tostring(objectiveConfig.dropLabel or "Recover the objective"),
-                required = 1,
+                required = requiredSamples,
                 radius = targetLocation.radius,
                 dropItemType = dropItemType ~= "" and dropItemType or nil,
                 spawnAfterKills = math.max(1, math.floor(tonumber(objectiveConfig.spawnAfterKills) or 4)),
                 encounterOnly = true,
                 requireAreaClear = spec.encounter.requireAreaClear == true,
-                completeRemainingObjectives = false,
-                completeQuestOnComplete = false,
+                completeRemainingObjectives = objectiveConfig.completeRemainingObjectives == true,
+                completeQuestOnComplete = objectiveConfig.completeQuestOnComplete == true,
+                completeEncounterObjectivesOnComplete = objectiveConfig.completeEncounterObjectivesOnComplete == true
+                    or objectiveConfig.skipAreaClearOnComplete == true
+                    or objectiveConfig.completeQuestOnComplete == true,
+                skipAreaClearOnComplete = objectiveConfig.skipAreaClearOnComplete == true
+                    or objectiveConfig.completeQuestOnComplete == true,
             },
             {
                 id = tostring(objectiveConfig.returnID or "return_drop"),
                 type = "deliverItem",
-                label = tostring(objectiveConfig.returnLabel or ("Return the sample to " .. giverName)),
-                required = 1,
+                label = tostring(
+                    objectiveConfig.returnLabel
+                        or ((requiredSamples > 1) and ("Return the samples to " .. giverName) or ("Return the sample to " .. giverName))
+                ),
+                required = requiredSamples,
                 targetLocation = returnLocation,
                 questItemType = dropItemType ~= "" and dropItemType or nil,
                 consumeOnComplete = objectiveConfig.consumeOnReturn ~= false,
