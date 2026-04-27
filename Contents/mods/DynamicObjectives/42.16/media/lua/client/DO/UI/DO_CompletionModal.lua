@@ -1,5 +1,6 @@
 require "ISUI/ISPanel"
 require "ISUI/ISButton"
+pcall(require, "DT/Common/Utils/DT_ItemIconUtils")
 
 DynamicObjectives = DynamicObjectives or {}
 DynamicObjectives.UI = DynamicObjectives.UI or {}
@@ -61,6 +62,9 @@ local function getItemDisplayName(itemType)
 end
 
 local function isValidTexture(texture)
+    if DynamicTrading and DynamicTrading.ItemIconUtils and DynamicTrading.ItemIconUtils.IsValidTexture then
+        return DynamicTrading.ItemIconUtils.IsValidTexture(texture)
+    end
     return texture ~= nil and texture ~= false
 end
 
@@ -83,6 +87,10 @@ local function getItemTexture(itemType)
     local key = tostring(itemType or "")
     if key == "" then
         return nil
+    end
+
+    if DynamicTrading and DynamicTrading.ItemIconUtils and DynamicTrading.ItemIconUtils.GetTexture then
+        return DynamicTrading.ItemIconUtils.GetTexture(key, nil, ITEM_TEXTURE_CACHE)
     end
 
     local cached = ITEM_TEXTURE_CACHE[key]
