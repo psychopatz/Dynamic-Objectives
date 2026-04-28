@@ -1241,6 +1241,7 @@ local function buildBaseQuestSpecForIncident(incident)
             rescueDistance = tonumber(incident.rescueDistance) or nil,
             homeDistance = tonumber(incident.homeDistance) or nil,
             routeDistance = tonumber(incident.routeDistance) or nil,
+            routeBaselineDistance = math.floor(distanceBetween(rescueSite.x, rescueSite.y, homeCoords.x, homeCoords.y) + 0.5),
         },
         name = string.format("Escort %s Home", traderName),
         targetLocation = homeCoords,
@@ -1455,6 +1456,36 @@ local function snapshotIsIncapacitated(snapshot)
         or tostring(snapshot.status or "") == "Incapacitated"
 end
 
+local function getEscortRouteBaselineDistance(hookState, rescueSite, homeCoords)
+    local persisted = tonumber(hookState and hookState.routeBaselineDistance)
+    if persisted and persisted > 0 then
+        return persisted
+    end
+
+    if rescueSite and homeCoords then
+        local rescueToHome = distanceBetween(rescueSite.x, rescueSite.y, homeCoords.x, homeCoords.y)
+        if rescueToHome > 0 then
+            return rescueToHome
+        end
+    end
+
+    local routeDistance = tonumber(hookState and hookState.routeDistance)
+    local rescueDistance = tonumber(hookState and hookState.rescueDistance)
+    if routeDistance and routeDistance > 0 and rescueDistance and rescueDistance >= 0 then
+        local previousTotalDistance = routeDistance - rescueDistance
+        if previousTotalDistance > 0 then
+            return previousTotalDistance
+        end
+    end
+
+    local homeDistance = tonumber(hookState and hookState.homeDistance)
+    if homeDistance and homeDistance > 0 then
+        return homeDistance
+    end
+
+    return nil
+end
+
 local function getEscortObjectiveLocationState(hookState, objective, fallbackLocation)
     if type(hookState) ~= "table" then
         return nil
@@ -1470,6 +1501,16 @@ local function getEscortObjectiveLocationState(hookState, objective, fallbackLoc
         return {
             kind = "home",
             location = homeCoords or fallbackLocation or rescueSite,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if homeCoords then
+        return {
+            kind = "home",
+            location = homeCoords,
             homeCoords = homeCoords,
             rescueSite = rescueSite,
             snapshot = snapshot,
@@ -1707,11 +1748,11 @@ local function buildActiveQuestScannerEntry(player, quest)
 
     local targetDistance = distanceBetween(player:getX(), player:getY(), target.x, target.y)
     local homeCoords = targetState and targetState.homeCoords or buildCoords(hookState.homeCoords, "Trader Base", HOME_RADIUS)
-    local homeDistance = homeCoords and distanceBetween(player:getX(), player:getY(), homeCoords.x, homeCoords.y) or nil
-    local distancePrefix = "Escort Target"
-    if targetState and targetState.kind == "home" then
-        distancePrefix = "Home Base"
-    elseif targetState and targetState.kind == "rescue" then
+    local escortDistance = targetState and targetState.snapshot and homeCoords and targetState.snapshot.x and targetState.snapshot.y
+        and distanceBetween(targetState.snapshot.x, targetState.snapshot.y, homeCoords.x, homeCoords.y)
+        or nil
+    local distancePrefix = "Destination"
+    if targetState and targetState.kind == "rescue" then
         distancePrefix = "Distress House"
     end
 
@@ -1736,7 +1777,7 @@ local function buildActiveQuestScannerEntry(player, quest)
         expireText = remainingHours ~= nil and string.format("Expires in %.1fh", math.max(0, remainingHours))
             or (quest.rewardPreview and ("Rewards: " .. tostring(quest.rewardPreview)))
             or "Escort active",
-        detailText = homeDistance and formatDistanceLabel("Home", homeDistance) or "",
+        detailText = escortDistance and formatDistanceLabel("Escort", escortDistance) or "",
         isLive = false,
         canLock = false,
         locked = false,
@@ -2420,42 +2461,56 @@ function Hook.buildSummary(player, quest, detail)
     local snapshot = targetState and targetState.snapshot or getClientTraderSnapshot(hookState.traderId)
     local homeCoords = targetState and targetState.homeCoords or buildCoords(hookState.homeCoords, "Trader Base", HOME_RADIUS)
     local targetLocation = targetState and targetState.location or fallbackLocation
+    local routeBaselineDistance = getEscortRouteBaselineDistance(hookState, targetState and targetState.rescueSite or nil, homeCoords)
     local distanceToHome = nil
     if snapshot and homeCoords and snapshot.x and snapshot.y then
         distanceToHome = distanceBetween(snapshot.x, snapshot.y, homeCoords.x, homeCoords.y)
     end
 
+    local progressRatio = nil
+    if objective and objective.completed == true then
+        progressRatio = 1
+    elseif distanceToHome and routeBaselineDistance and routeBaselineDistance > 0 then
+        progressRatio = math.max(0, math.min(1, 1 - (distanceToHome / routeBaselineDistance)))
+    elseif distanceToHome then
+        progressRatio = 0
+    end
+
+    local destinationLabel = homeCoords and tostring(homeCoords.label or "Trader Base") or "Trader Base"
+    local escortCondition = snapshot and snapshotIsIncapacitated(snapshot) and "Escort failed" or "Keep the trader on their feet"
+
     local summaryFragments = {
-        "Keep the trader alive",
+        "Reach the destination",
     }
     if distanceToHome then
-        summaryFragments[#summaryFragments + 1] = string.format("Home %.0fm", distanceToHome)
+        summaryFragments[#summaryFragments + 1] = string.format("Destination %.0fm", distanceToHome)
     else
-        summaryFragments[#summaryFragments + 1] = "Stay close to the escort target"
+        summaryFragments[#summaryFragments + 1] = destinationLabel
     end
 
     return {
-        currentObjectiveLabel = "Guide the trader safely to base",
-        targetLabel = targetLocation and tostring(targetLocation.label or traderName) or (detail and detail.targetLabel) or "",
+        currentObjectiveLabel = "Reach " .. destinationLabel,
+        targetLabel = targetLocation and tostring(targetLocation.label or destinationLabel) or (detail and detail.targetLabel) or destinationLabel,
         primaryProgress = distanceToHome and {
-            label = "Escort Route",
-            value = string.format("%.0fm to base", distanceToHome),
-            detail = snapshot and snapshot.live and "Escort target is nearby" or "Stay with the trader until they are in range",
-            ratio = 0,
-            color = { r = 0.42, g = 0.82, b = 0.54 },
+            label = "Distance to Base",
+            value = string.format("%.0fm remaining", distanceToHome),
+            detail = routeBaselineDistance and string.format("Started %.0fm out", routeBaselineDistance)
+                or "Keep the trader moving toward base",
+            ratio = progressRatio or 0,
+            color = (objective and objective.completed == true) and { r = 0.34, g = 0.82, b = 0.48 } or { r = 0.42, g = 0.82, b = 0.54 },
         } or nil,
         lines = {
             {
-                id = "escort_status",
-                label = "Escort Status",
-                value = snapshot and snapshot.live and "Trader in formation" or "Stay within range of the trader",
-                completed = false,
+                id = "escort_destination",
+                label = "Destination",
+                value = destinationLabel,
+                completed = objective and objective.completed == true,
                 current = true,
             },
             {
-                id = "escort_home",
-                label = "Destination",
-                value = homeCoords and tostring(homeCoords.label or "Trader Base") or "Trader Base",
+                id = "escort_condition",
+                label = "Escort Condition",
+                value = escortCondition,
                 completed = false,
                 current = false,
             },

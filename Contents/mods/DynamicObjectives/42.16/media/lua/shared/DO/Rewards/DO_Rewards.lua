@@ -265,7 +265,7 @@ local function grantMoneyReward(player, reward)
 end
 
 local function grantReputationReward(player, reward, context)
-    if not (DynamicTrading_Factions and DynamicTrading_Factions.ModifyReputation) then
+    if not (DynamicTrading and DynamicTrading.ServerHelpers and DynamicTrading.ServerHelpers.SendReputationSync) then
         return "skipped_missing_integration", "Dynamic Trading factions were not available."
     end
 
@@ -274,8 +274,12 @@ local function grantReputationReward(player, reward, context)
         return "skipped_missing_context", "No faction context was available for reputation."
     end
 
-    local username = resolveRewardUsername(player)
-    local ok = DynamicTrading_Factions.ModifyReputation(tostring(factionID), username, tonumber(reward.amount) or 0)
+    local ok = DynamicTrading.ServerHelpers.SendReputationSync(player, {
+        action = "factionBiasDelta",
+        factionID = tostring(factionID),
+        amount = tonumber(reward.amount) or 0,
+        reason = "quest_reward"
+    })
     if not ok then
         return "failed", "Could not modify faction reputation."
     end
