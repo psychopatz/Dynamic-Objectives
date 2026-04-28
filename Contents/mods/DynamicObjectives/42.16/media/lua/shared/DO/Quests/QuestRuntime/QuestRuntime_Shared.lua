@@ -106,6 +106,8 @@ local function getStore(player, create)
             proceduralOfferHistory = {},
             chainProgress = {},
             ambientOfferState = {},
+            uiEventSeq = 0,
+            uiEvents = {},
         }
         modData[Quests.MODDATA_KEY] = store
     end
@@ -122,6 +124,8 @@ local function getStore(player, create)
         store.proceduralOfferHistory = type(store.proceduralOfferHistory) == "table" and store.proceduralOfferHistory or {}
         store.chainProgress = type(store.chainProgress) == "table" and store.chainProgress or {}
         store.ambientOfferState = type(store.ambientOfferState) == "table" and store.ambientOfferState or {}
+        store.uiEventSeq = math.max(0, math.floor(tonumber(store.uiEventSeq) or 0))
+        store.uiEvents = type(store.uiEvents) == "table" and store.uiEvents or {}
     end
 
     return store

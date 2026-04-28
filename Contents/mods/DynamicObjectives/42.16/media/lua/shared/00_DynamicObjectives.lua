@@ -177,12 +177,8 @@ function DO.NotifyStateChanged(player)
         DO.ClearIndicators.Refresh(player)
     end
 
-    if DO_CompletionModal and DO_CompletionModal.ProcessLatestCompletedQuest then
-        DO_CompletionModal.ProcessLatestCompletedQuest(player)
-    end
-
-    if DO_FailureModal and DO_FailureModal.ProcessLatestFailedQuest then
-        DO_FailureModal.ProcessLatestFailedQuest(player)
+    if DO_MissionModalShared and DO_MissionModalShared.ProcessMissionEvents then
+        DO_MissionModalShared.ProcessMissionEvents(player)
     end
 
     if DT_RadioScannerWindow and DT_RadioScannerWindow.instance and DT_RadioScannerWindow.instance.currentCategory == "Quest" then
@@ -202,6 +198,7 @@ require "DO/Quests/DO_QuestItemRuntime"
 require "DO/Quests/QuestRuntime/QuestRuntime"
 require "DO/Objectives/DO_ObjectiveHooks"
 require "DO/UI/DO_ScannerQuestProvider"
+require "DO/UI/DO_MissionEventQueue"
 require "DO/Kills/DO_KillTracking"
 
 if DO.QuestRegistryLoader and DO.QuestRegistryLoader.LoadShippedContent then

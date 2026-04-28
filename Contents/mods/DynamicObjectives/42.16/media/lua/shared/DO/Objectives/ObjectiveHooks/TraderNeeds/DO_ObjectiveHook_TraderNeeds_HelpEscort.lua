@@ -381,6 +381,7 @@ local function copyIncidentForPlayer(incident)
         factionName = incident.factionName and tostring(incident.factionName) or nil,
         homeCoords = buildCoords(incident.homeCoords, "Trader Base", HOME_RADIUS),
         rescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS),
+        distressCoords = buildCoords(incident.distressCoords, incident.traderName and tostring(incident.traderName) or "Trader", 10),
         status = tostring(incident.status or "pending"),
         ownerPlayerKey = incident.ownerPlayerKey and tostring(incident.ownerPlayerKey) or nil,
         ownerUsername = incident.ownerUsername and tostring(incident.ownerUsername) or nil,
@@ -520,6 +521,7 @@ local function restoreTraderIncidentFlags(npcData, incident)
     npcData.doObjectiveEscortActive = nil
     npcData.doObjectiveEscortQuestId = nil
     npcData.doObjectiveRescueSite = nil
+    npcData.doObjectiveDistressCoords = nil
     npcData.doObjectiveHomeCoords = nil
     npcData.doObjectiveFactionId = nil
     if incident and incident.status then
@@ -542,9 +544,39 @@ local function markTraderForIncident(npcData, incident, status)
     npcData.doObjectiveEscortActive = tostring(status or incident.status or "pending") == "accepted"
     npcData.doObjectiveEscortQuestId = incident.questId and tostring(incident.questId) or nil
     npcData.doObjectiveRescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
+    npcData.doObjectiveDistressCoords = buildCoords(incident.distressCoords, tostring(incident.traderName or "Trader"), 10)
     npcData.doObjectiveHomeCoords = buildCoords(incident.homeCoords, "Trader Base", HOME_RADIUS)
     npcData.doObjectiveFactionId = incident.factionId and tostring(incident.factionId) or nil
 end
+
+local function buildDistressTargetCoords(incident, x, y, z)
+    if not incident or x == nil or y == nil then
+        return nil
+    end
+
+    local traderName = tostring(incident.traderName or "Trader")
+    local rescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
+    local homeCoords = buildCoords(incident.homeCoords, traderName .. "'s Base", HOME_RADIUS)
+
+    return buildCoords({
+        x = x,
+        y = y,
+        z = z or 0,
+        label = traderName,
+        town = rescueSite and rescueSite.town or (homeCoords and homeCoords.town) or nil,
+        county = rescueSite and rescueSite.county or (homeCoords and homeCoords.county) or nil,
+        radius = 10,
+        symbolID = "DOQuestTarget",
+        worldIcon = "friend.png",
+        r = 0.95,
+        g = 0.76,
+        b = 0.22,
+        a = 1.0,
+        scale = 1.05,
+    }, traderName, 10)
+end
+
+local isLiveTraderSpawned
 
 local function applyDistressState(incident)
     if not incident or not isAuthoritative() then
@@ -563,6 +595,7 @@ local function applyDistressState(incident)
         return false
     end
 
+    incident.distressCoords = buildDistressTargetCoords(incident, spawnX, spawnY, spawnZ)
     soul.lastX = spawnX
     soul.lastY = spawnY
     soul.lastZ = spawnZ or 0
@@ -581,6 +614,67 @@ local function applyDistressState(incident)
     saveSoul(uuid, soul)
     despawnLiveTrader(uuid)
     return true
+end
+
+local function ensurePendingTraderSpawned(player, incident)
+    if not incident or tostring(incident.status or "") ~= "pending" or not isAuthoritative() then
+        return false
+    end
+
+    local uuid = incident.traderId
+    if not uuid then
+        return false
+    end
+
+    local distressCoords = buildCoords(incident.distressCoords, tostring(incident.traderName or "Trader"), 10)
+    if not distressCoords then
+        if applyDistressState(incident) ~= true then
+            return false
+        end
+        distressCoords = buildCoords(incident.distressCoords, tostring(incident.traderName or "Trader"), 10)
+    end
+
+    if player and distressCoords then
+        local dist = distanceBetween(player:getX(), player:getY(), distressCoords.x, distressCoords.y)
+        if dist > ZOMBIE_ACTIVATION_RADIUS then
+            return false
+        end
+    end
+
+    if isLiveTraderSpawned(uuid) then
+        return true
+    end
+
+    local soul = getSoul(uuid)
+    if not isAliveSoul(soul) then
+        return false
+    end
+
+    if distressCoords then
+        soul.lastX = distressCoords.x
+        soul.lastY = distressCoords.y
+        soul.lastZ = distressCoords.z or 0
+    end
+    soul.status = "Resting"
+    soul.state = "Idle"
+    soul.returnTime = 0
+    soul.returnStatus = nil
+    soul.master = nil
+    soul.masterID = nil
+    soul.combatOrder = nil
+    soul.guardCombatOrder = nil
+    soul.tasks = {}
+    soul.requestedReturnStatus = nil
+    soul.travelTarget = nil
+    markTraderForIncident(soul, incident, "pending")
+    saveSoul(uuid, soul)
+
+    if DTNPCServerCore and DTNPCServerCore.RespawnNPC then
+        local zombie = DTNPCServerCore.RespawnNPC(soul, uuid)
+        return zombie ~= nil
+    end
+
+    return false
 end
 
 local function restoreTraderState(incident, resolution)
@@ -675,7 +769,7 @@ local function trySpawnExteriorZombies(player, incident)
     return spawnedAny
 end
 
-local function isLiveTraderSpawned(uuid)
+isLiveTraderSpawned = function(uuid)
     if not isAuthoritative() then
         return false
     end
@@ -1328,14 +1422,21 @@ local function getClientTraderSnapshot(traderId)
     if DT_RadioScannerManager and DT_RadioScannerManager.GetSoul then
         local soul = DT_RadioScannerManager.GetSoul(traderId)
         if soul then
+            local hasLastKnownPosition = soul.lastX ~= nil and soul.lastY ~= nil
+            local rescueSite = type(soul.doObjectiveRescueSite) == "table" and soul.doObjectiveRescueSite or nil
+            local distressCoords = type(soul.doObjectiveDistressCoords) == "table" and soul.doObjectiveDistressCoords or nil
+            local homeCoords = type(soul.doObjectiveHomeCoords) == "table" and soul.doObjectiveHomeCoords or soul.homeCoords
+            local fallback = hasLastKnownPosition and nil or (distressCoords or rescueSite or homeCoords)
             return {
                 live = false,
                 npcData = soul,
-                x = soul.lastX or (soul.homeCoords and soul.homeCoords.x),
-                y = soul.lastY or (soul.homeCoords and soul.homeCoords.y),
-                z = soul.lastZ or (soul.homeCoords and soul.homeCoords.z) or 0,
+                x = hasLastKnownPosition and soul.lastX or (fallback and fallback.x),
+                y = hasLastKnownPosition and soul.lastY or (fallback and fallback.y),
+                z = hasLastKnownPosition and (soul.lastZ or 0) or ((fallback and fallback.z) or 0),
                 status = soul.status,
                 isDead = tostring(soul.status or "") == "Dead",
+                locationSource = hasLastKnownPosition and "lastKnown"
+                    or (distressCoords and "distressCoords" or (rescueSite and "rescueSite" or (homeCoords and "homeCoords" or nil))),
             }
         end
     end
@@ -1352,6 +1453,123 @@ local function snapshotIsIncapacitated(snapshot)
     return tostring(npcData.incapState or "") == "Active"
         or tostring(npcData.state or "") == "Incapacitated"
         or tostring(snapshot.status or "") == "Incapacitated"
+end
+
+local function getEscortObjectiveLocationState(hookState, objective, fallbackLocation)
+    if type(hookState) ~= "table" then
+        return nil
+    end
+
+    local traderName = tostring(hookState.traderName or "Trader")
+    local rescueSite = buildCoords(hookState.rescueSite, "Distress Signal", RESCUE_RADIUS)
+    local homeCoords = buildCoords(hookState.homeCoords, traderName .. "'s Base", HOME_RADIUS)
+    local snapshot = getClientTraderSnapshot(hookState.traderId)
+    local snapshotSource = snapshot and tostring(snapshot.locationSource or "") or nil
+
+    if objective and objective.completed == true then
+        return {
+            kind = "home",
+            location = homeCoords or fallbackLocation or rescueSite,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if snapshotSource == "rescueSite" and rescueSite then
+        return {
+            kind = "rescue",
+            location = rescueSite,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if snapshotSource == "homeCoords" then
+        return {
+            kind = rescueSite and "rescue" or "home",
+            location = rescueSite or homeCoords or fallbackLocation,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if snapshot and snapshot.x and snapshot.y then
+        local traderLocation = buildCoords({
+            x = snapshot.x,
+            y = snapshot.y,
+            z = snapshot.z or 0,
+            label = traderName,
+            radius = 12,
+            symbolID = "DOQuestTarget",
+            worldIcon = "friend.png",
+            r = 0.95,
+            g = 0.76,
+            b = 0.22,
+            a = 1.0,
+            scale = 1.0,
+        }, traderName, 12)
+
+        if traderLocation then
+            if homeCoords and isWithinRadius(homeCoords, traderLocation.x, traderLocation.y, traderLocation.z) then
+                return {
+                    kind = "home",
+                    location = homeCoords,
+                    homeCoords = homeCoords,
+                    rescueSite = rescueSite,
+                    snapshot = snapshot,
+                }
+            end
+
+            return {
+                kind = "trader",
+                location = traderLocation,
+                homeCoords = homeCoords,
+                rescueSite = rescueSite,
+                snapshot = snapshot,
+            }
+        end
+    end
+
+    if rescueSite then
+        return {
+            kind = "rescue",
+            location = rescueSite,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if homeCoords then
+        return {
+            kind = "home",
+            location = homeCoords,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    if fallbackLocation then
+        return {
+            kind = "fallback",
+            location = fallbackLocation,
+            homeCoords = homeCoords,
+            rescueSite = rescueSite,
+            snapshot = snapshot,
+        }
+    end
+
+    return {
+        kind = "missing",
+        location = nil,
+        homeCoords = homeCoords,
+        rescueSite = rescueSite,
+        snapshot = snapshot,
+    }
 end
 
 local function emitEscortNoise(player, quest)
@@ -1434,12 +1652,22 @@ end
 local function buildPendingScannerEntry(player, incident)
     local rescueSite = buildCoords(incident.rescueSite, "Distress Signal", RESCUE_RADIUS)
     local homeCoords = buildCoords(incident.homeCoords, "Trader Base", HOME_RADIUS)
-    if not rescueSite then
+    local snapshot = getClientTraderSnapshot(incident and incident.traderId)
+    local distressTarget = nil
+    if snapshot and snapshot.x and snapshot.y then
+        distressTarget = buildDistressTargetCoords(incident, snapshot.x, snapshot.y, snapshot.z or 0)
+    end
+    if not distressTarget then
+        distressTarget = buildCoords(incident.distressCoords, tostring(incident.traderName or "Trader"), 10)
+    end
+
+    local target = distressTarget or rescueSite
+    if not target then
         return nil
     end
 
-    local rescueDistance = distanceBetween(player:getX(), player:getY(), rescueSite.x, rescueSite.y)
-    local metrics = homeCoords and buildEscortDistanceMetrics(player, rescueSite, homeCoords) or nil
+    local traderDistance = distanceBetween(player:getX(), player:getY(), target.x, target.y)
+    local homeDistance = homeCoords and distanceBetween(target.x, target.y, homeCoords.x, homeCoords.y) or nil
     local expiresAt = tonumber(incident.expiresAt) or 0
     local remainingHours = expiresAt > 0 and math.max(0, (expiresAt - (DO.NowMs and DO.NowMs() or 0)) / (1000 * 60 * 60)) or nil
     return {
@@ -1453,13 +1681,13 @@ local function buildPendingScannerEntry(player, incident)
         archetype = incident.archetype and tostring(incident.archetype) or "Trader",
         gender = "Unknown",
         identitySeed = 1,
-        x = rescueSite.x,
-        y = rescueSite.y,
-        z = rescueSite.z,
-        distText = string.format("Distress House: %.0fm", rescueDistance),
+        x = target.x,
+        y = target.y,
+        z = target.z,
+        distText = string.format("Distressed Trader: %.0fm", traderDistance),
         expireText = remainingHours and string.format("Signal %.1fh", remainingHours) or "Pending rescue",
-        detailText = metrics and formatEscortRouteText(metrics.routeDistance, metrics.homeDistance) or "",
-        isLive = false,
+        detailText = homeDistance and formatDistanceLabel("Home", homeDistance) or "",
+        isLive = snapshot and snapshot.live == true,
         canLock = false,
         locked = false,
         priority = 120,
@@ -1469,12 +1697,24 @@ end
 
 local function buildActiveQuestScannerEntry(player, quest)
     local hookState = type(quest and quest.hookState) == "table" and quest.hookState or nil
-    local target = buildCoords(quest and quest.targetLocation, tostring(quest and quest.name or "Escort"), HOME_RADIUS)
+    local objective = quest and quest.objectives and quest.objectives[1] or nil
+    local fallbackTarget = buildCoords(quest and quest.targetLocation, tostring(quest and quest.name or "Escort"), HOME_RADIUS)
+    local targetState = getEscortObjectiveLocationState(hookState, objective, fallbackTarget)
+    local target = targetState and targetState.location or fallbackTarget
     if not hookState or not target then
         return nil
     end
 
-    local homeDistance = distanceBetween(player:getX(), player:getY(), target.x, target.y)
+    local targetDistance = distanceBetween(player:getX(), player:getY(), target.x, target.y)
+    local homeCoords = targetState and targetState.homeCoords or buildCoords(hookState.homeCoords, "Trader Base", HOME_RADIUS)
+    local homeDistance = homeCoords and distanceBetween(player:getX(), player:getY(), homeCoords.x, homeCoords.y) or nil
+    local distancePrefix = "Escort Target"
+    if targetState and targetState.kind == "home" then
+        distancePrefix = "Home Base"
+    elseif targetState and targetState.kind == "rescue" then
+        distancePrefix = "Distress House"
+    end
+
     local detail = DO.Quests and DO.Quests.GetQuestDetailData and DO.Quests.GetQuestDetailData(player, quest.id) or nil
     local remainingHours = detail and tonumber(detail.timeRemainingHours) or nil
     return {
@@ -1492,11 +1732,11 @@ local function buildActiveQuestScannerEntry(player, quest)
         x = target.x,
         y = target.y,
         z = target.z,
-        distText = string.format("Home Base: %.0fm", homeDistance),
+        distText = string.format("%s: %.0fm", distancePrefix, targetDistance),
         expireText = remainingHours ~= nil and string.format("Expires in %.1fh", math.max(0, remainingHours))
             or (quest.rewardPreview and ("Rewards: " .. tostring(quest.rewardPreview)))
             or "Escort active",
-        detailText = formatDistanceLabel("Route", homeDistance),
+        detailText = homeDistance and formatDistanceLabel("Home", homeDistance) or "",
         isLive = false,
         canLock = false,
         locked = false,
@@ -1546,8 +1786,13 @@ function Hook.refreshIncidentsForPlayer(player)
             hookStore.incidents[incidentID] = nil
             changed = true
         else
+            local spawnedTrader = ensurePendingTraderSpawned(player, liveIncident)
+            local spawnedExterior = trySpawnExteriorZombies(player, liveIncident)
             hookStore.incidents[incidentID] = copyIncidentForPlayer(liveIncident)
             pendingCount = pendingCount + 1
+            if spawnedTrader == true or spawnedExterior == true then
+                changed = true
+            end
         end
     end
 
@@ -1585,8 +1830,9 @@ function Hook.refreshIncidentsForPlayer(player)
     for _, pendingIncident in ipairs(collectPendingIncidentsForPlayer(player)) do
         local incidentId = tostring(pendingIncident.incidentId or "")
         if incidentId ~= "" and not selectedIncidentIds[incidentId] and pendingCount < targetPendingCount then
-            syncIncidentMirrorForPlayer(player, pendingIncident)
+            ensurePendingTraderSpawned(player, pendingIncident)
             trySpawnExteriorZombies(player, pendingIncident)
+            syncIncidentMirrorForPlayer(player, pendingIncident)
             selectedIncidentIds[incidentId] = true
             pendingCount = pendingCount + 1
             syncedCount = syncedCount + 1
@@ -1607,8 +1853,9 @@ function Hook.refreshIncidentsForPlayer(player)
             break
         end
 
-        syncIncidentMirrorForPlayer(player, createdIncident)
+        ensurePendingTraderSpawned(player, createdIncident)
         trySpawnExteriorZombies(player, createdIncident)
+        syncIncidentMirrorForPlayer(player, createdIncident)
         selectedIncidentIds[tostring(createdIncident.incidentId or "")] = true
         selectedTraderIds[tostring(createdIncident.traderId or "")] = true
         pendingCount = pendingCount + 1
@@ -2154,6 +2401,12 @@ function Hook.onQuestFail(player, quest, store)
     return true
 end
 
+function Hook.resolveQuestLocation(player, quest, objective, fallbackLocation)
+    local hookState = type(quest and quest.hookState) == "table" and quest.hookState or nil
+    local targetState = getEscortObjectiveLocationState(hookState, objective, fallbackLocation)
+    return targetState and targetState.location or fallbackLocation
+end
+
 function Hook.buildSummary(player, quest, detail)
     local hookState = type(quest and quest.hookState) == "table" and quest.hookState or nil
     if not hookState then
@@ -2161,8 +2414,12 @@ function Hook.buildSummary(player, quest, detail)
     end
 
     local traderName = tostring(hookState.traderName or quest.name or "Trader")
-    local snapshot = getClientTraderSnapshot(hookState.traderId)
-    local homeCoords = buildCoords(hookState.homeCoords, "Trader Base", HOME_RADIUS)
+    local objective = quest and quest.objectives and quest.objectives[1] or nil
+    local fallbackLocation = detail and detail.targetLocation or buildCoords(quest and quest.targetLocation, traderName, HOME_RADIUS)
+    local targetState = getEscortObjectiveLocationState(hookState, objective, fallbackLocation)
+    local snapshot = targetState and targetState.snapshot or getClientTraderSnapshot(hookState.traderId)
+    local homeCoords = targetState and targetState.homeCoords or buildCoords(hookState.homeCoords, "Trader Base", HOME_RADIUS)
+    local targetLocation = targetState and targetState.location or fallbackLocation
     local distanceToHome = nil
     if snapshot and homeCoords and snapshot.x and snapshot.y then
         distanceToHome = distanceBetween(snapshot.x, snapshot.y, homeCoords.x, homeCoords.y)
@@ -2179,7 +2436,7 @@ function Hook.buildSummary(player, quest, detail)
 
     return {
         currentObjectiveLabel = "Guide the trader safely to base",
-        targetLabel = homeCoords and tostring(homeCoords.label or "Trader Base") or (detail and detail.targetLabel) or "",
+        targetLabel = targetLocation and tostring(targetLocation.label or traderName) or (detail and detail.targetLabel) or "",
         primaryProgress = distanceToHome and {
             label = "Escort Route",
             value = string.format("%.0fm to base", distanceToHome),

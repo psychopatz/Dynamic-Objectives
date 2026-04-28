@@ -184,6 +184,64 @@ function Quests.DebugSimulateQuestFailure(player, difficulty, timeLimitHours)
     return quest
 end
 
+function Quests.DebugSimulateQuestProgress(player, difficulty, timeLimitHours)
+    if not player then
+        return nil
+    end
+
+    local quest = buildDebugCompletionSpec(player, difficulty, timeLimitHours)
+    if not quest then
+        return nil
+    end
+
+    quest.status = "active"
+    quest.title = "Mission Progress Modal Test"
+    quest.name = "Debug Progress Contract"
+    quest.objectives = {
+        {
+            id = "debug_pickup_parcel",
+            type = "pickupItem",
+            label = "Grab the parcel",
+            required = 1,
+            progress = 1,
+            completed = true,
+        },
+        {
+            id = "debug_clear_infestation",
+            type = "areaClear",
+            label = "Clear the infestation",
+            required = 1,
+            progress = 0,
+            completed = false,
+        },
+        {
+            id = "debug_deliver_parcel",
+            type = "deliverItem",
+            label = "Deliver the parcel",
+            required = 1,
+            progress = 0,
+            completed = false,
+        },
+    }
+
+    if DO.UI and DO.UI.QueueMissionEvent then
+        DO.UI.QueueMissionEvent(player, {
+            kind = "progress",
+            source = "debug_progress_modal",
+            occurredAt = DO.NowMs and DO.NowMs() or 0,
+            quest = quest,
+            objective = quest.objectives[1],
+            objectiveID = quest.objectives[1].id,
+        })
+    end
+
+    if DO.NotifyStateChanged then
+        DO.NotifyStateChanged(player)
+    end
+
+    return quest
+end
+
 function Quests.DumpState(player)
     local store = Runtime.getStore(player, false)
     if not store then

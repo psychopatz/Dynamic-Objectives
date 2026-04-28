@@ -113,15 +113,24 @@ local function syncEncounterObjectiveCounts(quest)
 end
 
 local function questLocationFor(quest, objective)
+    local fallbackLocation = nil
     if objective and objective.targetLocation then
-        return objective.targetLocation
+        fallbackLocation = objective.targetLocation
+    elseif quest and quest.encounter and quest.encounter.location then
+        fallbackLocation = quest.encounter.location
+    else
+        fallbackLocation = quest and quest.targetLocation or nil
     end
 
-    if quest and quest.encounter and quest.encounter.location then
-        return quest.encounter.location
+    local hook = quest and Runtime.getObjectiveHookForQuest and Runtime.getObjectiveHookForQuest(quest) or nil
+    if hook and hook.resolveQuestLocation then
+        local resolved = hook.resolveQuestLocation(nil, quest, objective, fallbackLocation)
+        if resolved then
+            return resolved
+        end
     end
 
-    return quest and quest.targetLocation or nil
+    return fallbackLocation
 end
 
 local function isWithinLocation(location, x, y, z)
@@ -284,6 +293,60 @@ local function markObjectiveCompleted(objective)
     objective.progress = required
     objective.completed = true
     return changed
+end
+
+local function captureObjectiveCompletionState(quest)
+    local state = {}
+    for _, objective in ipairs(quest and quest.objectives or {}) do
+        state[tostring(objective and objective.id or "")] = objective and objective.completed == true or false
+    end
+    return state
+end
+
+local function shouldQueueObjectiveProgressEvent(objective)
+    if not objective then
+        return false
+    end
+
+    if objective.suppressProgressEvent == true then
+        return false
+    end
+
+    if objective.type == "claimRewards" or tostring(objective.id or "") == "claim_rewards" then
+        return false
+    end
+
+    return true
+end
+
+local function queueObjectiveProgressEvents(player, quest, previousState, source)
+    if not player or not quest or type(previousState) ~= "table" or not (DO.UI and DO.UI.QueueMissionEvent) then
+        return 0
+    end
+
+    local queued = 0
+    local occurredAt = DO.NowMs and DO.NowMs() or 0
+    for _, objective in ipairs(quest.objectives or {}) do
+        local objectiveID = tostring(objective and objective.id or "")
+        if objectiveID ~= ""
+            and objective
+            and objective.completed == true
+            and previousState[objectiveID] ~= true
+            and shouldQueueObjectiveProgressEvent(objective)
+        then
+            DO.UI.QueueMissionEvent(player, {
+                kind = "progress",
+                source = source or "objective_completed",
+                quest = quest,
+                objective = objective,
+                objectiveID = objectiveID,
+                occurredAt = occurredAt,
+            })
+            queued = queued + 1
+        end
+    end
+
+    return queued
 end
 
 local function completeObjectivesAfter(quest, objectiveID)
@@ -530,6 +593,8 @@ Runtime.onQuestStateChanged = onQuestStateChanged
 Runtime.removeQuestItemByQuestID = removeQuestItemByQuestID
 Runtime.removeQuestDropsByQuestID = removeQuestDropsByQuestID
 Runtime.markObjectiveCompleted = markObjectiveCompleted
+Runtime.captureObjectiveCompletionState = captureObjectiveCompletionState
+Runtime.queueObjectiveProgressEvents = queueObjectiveProgressEvents
 Runtime.completeObjectivesAfter = completeObjectivesAfter
 Runtime.countObjectiveDropItems = countObjectiveDropItems
 Runtime.isQuestEncounterZombie = isQuestEncounterZombie

@@ -72,6 +72,32 @@ local function clearOwnedSymbols(symbols)
     end
 end
 
+local function countOwnedSymbols(symbols)
+    if not symbols then
+        return 0
+    end
+
+    local owned = 0
+    for index = symbols:getSymbolCount() - 1, 0, -1 do
+        local symbol = symbols:getSymbolByIndex(index)
+        if symbol and symbol.getSymbolID then
+            local symbolID = symbol:getSymbolID()
+            if symbolID and MapMarkers.ownedSymbolIDs[symbolID] then
+                owned = owned + 1
+            end
+        end
+    end
+    return owned
+end
+
+local function getExpectedOwnedSymbolCount(marker, state)
+    local expected = marker and 1 or 0
+    if state and state.quest then
+        expected = expected + #(state.targets or {})
+    end
+    return expected
+end
+
 local function drawSymbol(symbols, symbolID, x, y, rgba, scale)
     if not symbols then
         return nil
@@ -234,7 +260,8 @@ function MapMarkers.Refresh(playerObj)
     local marker = DO.Quests.GetLocatedMarkerData(playerObj)
     local state = Resolver.ResolveLocatedQuestTargets and Resolver.ResolveLocatedQuestTargets(playerObj) or nil
     local signature = buildMarkerSignature(marker, state)
-    if not MapMarkers.dirty and signature == MapMarkers.lastSignature then
+    local missingSymbols = countOwnedSymbols(symbols) ~= getExpectedOwnedSymbolCount(marker, state)
+    if not MapMarkers.dirty and signature == MapMarkers.lastSignature and missingSymbols ~= true then
         return
     end
 

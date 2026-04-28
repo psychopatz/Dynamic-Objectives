@@ -465,6 +465,16 @@ function Quests.OnZombieKilled(player, zombie)
 
     for _, quest in ipairs(store.quests or {}) do
         if quest.status == "active" then
+            local completionState = Runtime.captureObjectiveCompletionState and Runtime.captureObjectiveCompletionState(quest) or {}
+            local queuedObjectiveEvents = false
+            local questChanged = false
+            local function flushObjectiveEvents()
+                if queuedObjectiveEvents ~= true and Runtime.queueObjectiveProgressEvents then
+                    Runtime.queueObjectiveProgressEvents(player, quest, completionState, "zombie_killed")
+                    queuedObjectiveEvents = true
+                end
+            end
+
             for _, objective in ipairs(quest.objectives or {}) do
                 if objective.completed ~= true and (objective.type == "kill" or objective.type == "obtainDrop") then
                     local location = Runtime.questLocationFor(quest, objective)
@@ -476,17 +486,17 @@ function Quests.OnZombieKilled(player, zombie)
                             if newProgress ~= objective.progress then
                                 objective.progress = newProgress
                                 objective.completed = objective.progress >= objective.required
-                                changed = true
+                                questChanged = true
                             end
                         elseif objective.type == "obtainDrop" then
                             objective.killProgress = math.max(0, math.floor(tonumber(objective.killProgress) or 0)) + 1
-                            changed = true
+                            questChanged = true
 
                             local nextSpawnThreshold = getNextDropSpawnThreshold(objective)
                             local prerequisiteReady = objective.killProgress >= nextSpawnThreshold
                             if prerequisiteReady and DO.Loot and DO.Loot.SpawnQuestCorpseDrop then
                                 if DO.Loot.SpawnQuestCorpseDrop(zombie, player, quest, objective) then
-                                    changed = true
+                                    questChanged = true
                                 end
                             end
                         end
@@ -495,7 +505,13 @@ function Quests.OnZombieKilled(player, zombie)
             end
 
             if shouldCompleteQuest(player, quest) then
+                flushObjectiveEvents()
                 return completeQuestOrRequestRewardClaim(player, quest, "kill_objectives")
+            end
+
+            if questChanged then
+                flushObjectiveEvents()
+                changed = true
             end
         end
     end
@@ -530,6 +546,15 @@ function Quests.OnPlayerQuestUpdate(player)
 
     for _, quest in ipairs(store.quests or {}) do
         if quest.status == "active" then
+            local completionState = Runtime.captureObjectiveCompletionState and Runtime.captureObjectiveCompletionState(quest) or {}
+            local queuedObjectiveEvents = false
+            local questChanged = false
+            local function flushObjectiveEvents(source)
+                if queuedObjectiveEvents ~= true and Runtime.queueObjectiveProgressEvents then
+                    Runtime.queueObjectiveProgressEvents(player, quest, completionState, source or "player_update")
+                    queuedObjectiveEvents = true
+                end
+            end
             local zoneState = nil
             local remainingHours = Runtime.getQuestRemainingHours(quest)
             if remainingHours ~= nil and remainingHours <= 0 then
@@ -542,8 +567,10 @@ function Quests.OnPlayerQuestUpdate(player)
                 local hookResult = hook.onQuestUpdate(player, quest, store)
                 if type(hookResult) == "table" then
                     changed = hookResult.changed == true or changed
+                    questChanged = hookResult.changed == true or questChanged
                     if hookResult.complete == true then
                         if not isAwaitingRewardClaim(quest) then
+                            flushObjectiveEvents("hook_completed")
                             completeQuestOrRequestRewardClaim(player, quest, hookResult.reason or "hook_completed")
                             return
                         end
@@ -560,6 +587,7 @@ function Quests.OnPlayerQuestUpdate(player)
                     if quest.encounter and quest.encounter.spawned ~= true and Runtime.isEncounterActivationReady(player, quest) then
                         if Quests.RequestEncounterSpawn(player, quest) then
                             changed = true
+                            questChanged = true
                         end
                     end
 
@@ -567,6 +595,7 @@ function Quests.OnPlayerQuestUpdate(player)
                         zoneState = zoneState or Quests.GetEncounterStatus(player, quest)
                         if syncEncounterKillObjectiveFromZoneState(quest, objective, zoneState) then
                             changed = true
+                            questChanged = true
                         end
                     end
 
@@ -577,21 +606,29 @@ function Quests.OnPlayerQuestUpdate(player)
                         if targetProgress ~= tonumber(objective.progress) then
                             objective.progress = targetProgress
                             changed = true
+                            questChanged = true
                         end
 
                         if count >= requiredCount then
-                            changed = Runtime.markObjectiveCompleted(objective) or changed
+                            local objectiveCompleted = Runtime.markObjectiveCompleted(objective)
+                            changed = objectiveCompleted or changed
+                            questChanged = objectiveCompleted or questChanged
                             if objective.completeRemainingObjectives == true then
-                                changed = Runtime.completeObjectivesAfter(quest, objective.id) or changed
+                                local completedAfter = Runtime.completeObjectivesAfter(quest, objective.id)
+                                changed = completedAfter or changed
+                                questChanged = completedAfter or questChanged
                             end
                             if objective.completeEncounterObjectivesOnComplete == true then
-                                changed = completeEncounterObjectives(quest) or changed
+                                local encounterCompleted = completeEncounterObjectives(quest)
+                                changed = encounterCompleted or changed
+                                questChanged = encounterCompleted or questChanged
                             end
                             if objective.skipAreaClearOnComplete == true then
                                 quest.skipAreaClear = true
                             end
                             if objective.completeQuestOnComplete == true then
                                 quest.skipAreaClear = true
+                                flushObjectiveEvents("objective_completed")
                                 completeQuestOrRequestRewardClaim(player, quest, "objective_completed")
                                 return
                             end
@@ -605,12 +642,15 @@ function Quests.OnPlayerQuestUpdate(player)
                                 and DO.Loot.EnsureQuestCorpseDropInArea(player, quest, objective, zoneState)
                             then
                                 changed = true
+                                questChanged = true
                             end
                         end
                     elseif objective.type == "areaClear" then
                         zoneState = zoneState or Quests.GetEncounterStatus(player, quest)
                         if zoneState and zoneState.areaClear == true then
-                            changed = Runtime.markObjectiveCompleted(objective) or changed
+                            local areaCompleted = Runtime.markObjectiveCompleted(objective)
+                            changed = areaCompleted or changed
+                            questChanged = areaCompleted or questChanged
                         end
                     elseif objective.type == "pickupItem" then
                         local location = Runtime.questLocationFor(quest, objective)
@@ -621,6 +661,7 @@ function Quests.OnPlayerQuestUpdate(player)
                             objective.progress = objective.required
                             objective.completed = true
                             changed = true
+                            questChanged = true
                         end
                     elseif objective.type == "deliverItem" then
                         local location = Runtime.questLocationFor(quest, objective)
@@ -640,6 +681,7 @@ function Quests.OnPlayerQuestUpdate(player)
                             if targetProgress ~= tonumber(objective.progress) then
                                 objective.progress = targetProgress
                                 changed = true
+                                questChanged = true
                             end
 
                             if #items >= requiredCount then
@@ -648,11 +690,14 @@ function Quests.OnPlayerQuestUpdate(player)
                                         Quests.RemoveInventoryItem(items[index])
                                     end
                                 end
-                                changed = Runtime.markObjectiveCompleted(objective) or changed
+                                local delivered = Runtime.markObjectiveCompleted(objective)
+                                changed = delivered or changed
+                                questChanged = delivered or questChanged
                                 if objective.skipAreaClearOnComplete == true then
                                     quest.skipAreaClear = true
                                 end
                                 changed = true
+                                questChanged = true
                             end
                         end
                     elseif objective.type == "claimRewards" then
@@ -662,10 +707,13 @@ function Quests.OnPlayerQuestUpdate(player)
                             return
                         end
                         changed = claimChanged or changed
+                        questChanged = claimChanged or questChanged
 
                         local location = Runtime.questLocationFor(quest, objective)
                         if Runtime.isWithinLocation(location, px, py, pz) then
-                            changed = Runtime.markObjectiveCompleted(objective) or changed
+                            local rewardsClaimed = Runtime.markObjectiveCompleted(objective)
+                            changed = rewardsClaimed or changed
+                            questChanged = rewardsClaimed or questChanged
                             quest.rewardsPendingClaim = false
                         end
                     end
@@ -673,8 +721,13 @@ function Quests.OnPlayerQuestUpdate(player)
             end
 
             if shouldCompleteQuest(player, quest) then
+                flushObjectiveEvents("player_update")
                 completeQuestOrRequestRewardClaim(player, quest, "player_update")
                 return
+            end
+
+            if questChanged then
+                flushObjectiveEvents("player_update")
             end
         end
     end

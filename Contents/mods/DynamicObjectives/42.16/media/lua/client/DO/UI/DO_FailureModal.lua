@@ -1,18 +1,19 @@
 require "ISUI/ISPanel"
 require "ISUI/ISButton"
+pcall(require, "DO/UI/DO_MissionModalShared")
 
 DynamicObjectives = DynamicObjectives or {}
 DynamicObjectives.UI = DynamicObjectives.UI or {}
 
 DO_FailureModal = ISPanel:derive("DO_FailureModal")
 DO_FailureModal.instance = DO_FailureModal.instance or nil
-DO_FailureModal.lastFailedQuestID = DO_FailureModal.lastFailedQuestID or nil
-DO_FailureModal.lastFailedAt = DO_FailureModal.lastFailedAt or 0
-DO_FailureModal.initializedFailureBaseline = DO_FailureModal.initializedFailureBaseline or false
-DO_FailureModal.sessionStartedAt = DO_FailureModal.sessionStartedAt or 0
 
 local DO = DynamicObjectives
+local Shared = DO_MissionModalShared or {}
 local AUTO_CLOSE_MS = 8000
+local BOX_ANIM_MS = 260
+local ENTRY_STAGGER_MS = 95
+local ENTRY_ANIM_MS = 280
 
 local function clamp(value, minValue, maxValue)
     if value < minValue then
@@ -25,6 +26,9 @@ local function clamp(value, minValue, maxValue)
 end
 
 local function trimText(value, limit)
+    if Shared.TrimText then
+        return Shared.TrimText(value, limit, 6)
+    end
     local text = tostring(value or "")
     limit = math.max(6, math.floor(tonumber(limit) or 48))
     if #text <= limit then
@@ -34,6 +38,9 @@ local function trimText(value, limit)
 end
 
 local function getLocalPlayer()
+    if Shared.GetLocalPlayer then
+        return Shared.GetLocalPlayer()
+    end
     if DO.GetLocalPlayer then
         return DO.GetLocalPlayer()
     end
@@ -77,6 +84,7 @@ local function buildFailureSummary(quest)
         or "Objective failed"
 
     return {
+        header = tostring(quest.status or "") == "abandoned" and "Objective Abandoned" or "Objective Failed",
         title = tostring((detail and detail.title) or quest.title or quest.name or "Mission Failed"),
         giver = giverName,
         faction = factionName,
@@ -87,7 +95,7 @@ local function buildFailureSummary(quest)
 end
 
 function DO_FailureModal:getNowMs()
-    return DO.NowMs and DO.NowMs() or 0
+    return Shared.GetNowMs and Shared.GetNowMs() or (DO.NowMs and DO.NowMs() or 0)
 end
 
 function DO_FailureModal:initialise()
@@ -112,20 +120,33 @@ function DO_FailureModal:onCloseButton()
 end
 
 function DO_FailureModal:prerender()
-    self:drawRect(0, 0, self.width, self.height, 0.92, 0.04, 0.03, 0.04)
-    self:drawRect(0, 0, self.width, 4, 0.96, 0.82, 0.18, 0.2)
-    self:drawRectBorder(0, 0, self.width, self.height, 0.76, 0.88, 0.34, 0.36)
+    local alpha, scale = self:getBoxAnimation()
+    local drawW = self.width * scale
+    local drawH = self.height * scale
+    local drawX = (self.width - drawW) / 2
+    local drawY = (self.height - drawH) / 2
+    self:drawRect(drawX, drawY, drawW, drawH, 0.92 * alpha, 0.04, 0.03, 0.04)
+    self:drawRect(drawX, drawY, drawW, 4, 0.96 * alpha, 0.82, 0.18, 0.2)
+    self:drawRectBorder(drawX, drawY, drawW, drawH, 0.76 * alpha, 0.88, 0.34, 0.36)
 end
 
 function DO_FailureModal:drawCard(x, y, w, h, title, value, detail, color)
     color = color or { r = 0.92, g = 0.38, b = 0.4 }
-    self:drawRect(x, y, w, h, 0.54, 0.08, 0.06, 0.07)
-    self:drawRect(x, y, w, 3, 0.92, color.r, color.g, color.b)
-    self:drawRectBorder(x, y, w, h, 0.42, color.r, color.g, color.b)
-    self:drawText(tostring(title or ""), x + 12, y + 10, color.r, color.g, color.b, 1, UIFont.Small)
-    self:drawText(trimText(value, 46), x + 12, y + 28, 0.98, 0.96, 0.96, 1, UIFont.Medium)
+    local animIndex = self.cardAnimIndex or 0
+    local alpha, offsetY, scale = self:getEntryAnimation(animIndex)
+    local drawW = w * scale
+    local drawH = h * scale
+    local drawX = x + ((w - drawW) / 2)
+    local drawY = y + offsetY + ((h - drawH) / 2)
+    self.cardAnimIndex = animIndex + 1
+
+    self:drawRect(drawX, drawY, drawW, drawH, 0.54 * alpha, 0.08, 0.06, 0.07)
+    self:drawRect(drawX, drawY, drawW, 3, 0.92 * alpha, color.r, color.g, color.b)
+    self:drawRectBorder(drawX, drawY, drawW, drawH, 0.42 * alpha, color.r, color.g, color.b)
+    self:drawText(tostring(title or ""), drawX + 12, drawY + 10, color.r, color.g, color.b, alpha, UIFont.Small)
+    self:drawText(trimText(value, 46), drawX + 12, drawY + 28, 0.98, 0.96, 0.96, alpha, UIFont.Medium)
     if detail and tostring(detail) ~= "" then
-        self:drawText(trimText(detail, 62), x + 12, y + h - 24, 0.78, 0.74, 0.74, 1, UIFont.Small)
+        self:drawText(trimText(detail, 62), drawX + 12, drawY + drawH - 24, 0.78, 0.74, 0.74, alpha, UIFont.Small)
     end
 end
 
@@ -135,9 +156,11 @@ function DO_FailureModal:render()
         return
     end
 
+    self.cardAnimIndex = 1
+    local headerAlpha, headerOffset = self:getEntryAnimation(0)
     local centerX = self.width / 2
-    self:drawTextCentre("Objective Failed", centerX, 16, 0.98, 0.98, 0.98, 1, UIFont.Large)
-    self:drawTextCentre(trimText(self.summary.title, 48), centerX, 42, 0.8, 0.9, 1.0, 1, UIFont.Medium)
+    self:drawTextCentre(tostring(self.summary.header or "Objective Failed"), centerX, 16 + headerOffset, 0.98, 0.98, 0.98, headerAlpha, UIFont.Large)
+    self:drawTextCentre(trimText(self.summary.title, 48), centerX, 42 + headerOffset, 0.8, 0.9, 1.0, headerAlpha, UIFont.Medium)
 
     local infoY = 82
     local cardGap = 12
@@ -175,6 +198,34 @@ function DO_FailureModal:setQuest(quest)
     self.autoCloseAt = self.openedAt + AUTO_CLOSE_MS
 end
 
+function DO_FailureModal:getBoxAnimation()
+    if Shared.GetGrowAnimation then
+        return Shared.GetGrowAnimation(self.openedAt, {
+            durationMs = BOX_ANIM_MS,
+            startScale = 0.88,
+            endScale = 1.0,
+            travelY = 18,
+            startAlpha = 0.24,
+        })
+    end
+    return 1, 1, 0
+end
+
+function DO_FailureModal:getEntryAnimation(index)
+    if Shared.GetEntryAnimation then
+        return Shared.GetEntryAnimation(self.openedAt, index, {
+            delayMs = 40,
+            staggerMs = ENTRY_STAGGER_MS,
+            durationMs = ENTRY_ANIM_MS,
+            startScale = 0.93,
+            endScale = 1.0,
+            travelY = 16,
+            startAlpha = 0.18,
+        })
+    end
+    return 1, 0, 1
+end
+
 function DO_FailureModal:new(x, y, width, height)
     local o = ISPanel:new(x, y, width, height)
     setmetatable(o, self)
@@ -209,10 +260,14 @@ function DO_FailureModal.Open(quest)
         DO_FailureModal.instance:instantiate()
     end
 
-    DO_FailureModal.instance:setX(x)
-    DO_FailureModal.instance:setY(y)
     DO_FailureModal.instance:setWidth(width)
     DO_FailureModal.instance:setHeight(height)
+    if Shared.CenterModal then
+        Shared.CenterModal(DO_FailureModal.instance)
+    else
+        DO_FailureModal.instance:setX(x)
+        DO_FailureModal.instance:setY(y)
+    end
     DO_FailureModal.instance:setVisible(true)
     DO_FailureModal.instance:setQuest(quest)
     if DO_FailureModal.instance.closeButton then
@@ -230,74 +285,14 @@ function DO_FailureModal.Open(quest)
     return DO_FailureModal.instance
 end
 
-local function processLatestFailedQuest(player)
-    player = player or getLocalPlayer()
-    if not player or not (DO.Quests and DO.Quests.GetLatestFailedQuest) then
+function DO_FailureModal.OpenFromEvent(event)
+    local quest = type(event) == "table" and event.quest or nil
+    if not quest then
         return nil
     end
-
-    local quest = DO.Quests.GetLatestFailedQuest(player)
-    if not quest or tonumber(quest.failedAt) == nil then
-        if DO_FailureModal.initializedFailureBaseline ~= true then
-            DO_FailureModal.initializedFailureBaseline = true
-        end
-        return nil
-    end
-
-    local failedAt = tonumber(quest.failedAt) or 0
-    if DO_FailureModal.sessionStartedAt <= 0 and DO.NowMs then
-        DO_FailureModal.sessionStartedAt = tonumber(DO.NowMs()) or 0
-    end
-
-    if DO_FailureModal.initializedFailureBaseline ~= true then
-        DO_FailureModal.initializedFailureBaseline = true
-        if DO_FailureModal.sessionStartedAt > 0 and failedAt < DO_FailureModal.sessionStartedAt then
-            DO_FailureModal.lastFailedQuestID = quest.id
-            DO_FailureModal.lastFailedAt = failedAt
-            return nil
-        end
-    end
-
-    if DO_FailureModal.sessionStartedAt > 0 and failedAt < DO_FailureModal.sessionStartedAt then
-        DO_FailureModal.lastFailedQuestID = quest.id
-        DO_FailureModal.lastFailedAt = math.max(failedAt, tonumber(DO_FailureModal.lastFailedAt) or 0)
-        return nil
-    end
-
-    if DO_FailureModal.lastFailedQuestID == quest.id and failedAt <= (DO_FailureModal.lastFailedAt or 0) then
-        return nil
-    end
-
-    DO_FailureModal.lastFailedQuestID = quest.id
-    DO_FailureModal.lastFailedAt = failedAt
     return DO_FailureModal.Open(quest)
 end
 
 function DO_FailureModal.ProcessLatestFailedQuest(player)
-    return processLatestFailedQuest(player or getLocalPlayer())
-end
-
-local function onTick()
-    DO_FailureModal.ProcessLatestFailedQuest(getLocalPlayer())
-end
-
-local function onGameStart()
-    if DO_FailureModal.instance and DO_FailureModal.instance.addedToUIManager == true then
-        DO_FailureModal.instance:setVisible(false)
-        DO_FailureModal.instance:removeFromUIManager()
-        DO_FailureModal.instance.addedToUIManager = false
-    end
-    DO_FailureModal.sessionStartedAt = 0
-    DO_FailureModal.initializedFailureBaseline = false
-    DO_FailureModal.lastFailedQuestID = nil
-    DO_FailureModal.lastFailedAt = 0
-end
-
-if Events then
-    if Events.OnTick then
-        Events.OnTick.Add(onTick)
-    end
-    if Events.OnGameStart then
-        Events.OnGameStart.Add(onGameStart)
-    end
+    return Shared.ProcessMissionEvents and Shared.ProcessMissionEvents(player or getLocalPlayer()) or nil
 end

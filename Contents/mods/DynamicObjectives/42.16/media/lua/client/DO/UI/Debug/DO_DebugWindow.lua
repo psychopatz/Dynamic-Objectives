@@ -132,6 +132,11 @@ function DO_DebugWindow:createChildren()
     self.btnMissionCompleteModal.backgroundColor = { r = 0.1, g = 0.35, b = 0.5, a = 1.0 }
     self:addChild(self.btnMissionCompleteModal)
 
+    self.btnMissionProgressModal = ISButton:new(0, 0, 80, self.buttonH, "Test Progress Modal", self, self.onTestProgressModal)
+    self.btnMissionProgressModal:initialise()
+    self.btnMissionProgressModal.backgroundColor = { r = 0.48, g = 0.36, b = 0.08, a = 1.0 }
+    self:addChild(self.btnMissionProgressModal)
+
     self.btnMissionFailModal = ISButton:new(0, 0, 80, self.buttonH, "Test Failure Modal", self, self.onTestFailureModal)
     self.btnMissionFailModal:initialise()
     self.btnMissionFailModal.backgroundColor = { r = 0.42, g = 0.16, b = 0.16, a = 1.0 }
@@ -192,6 +197,7 @@ function DO_DebugWindow:getContentWidth()
         measureText(UIFont.Small, "Open Mission Viewer"),
         measureText(UIFont.Small, "Preview Quest Conversation"),
         measureText(UIFont.Small, "Test Completion Modal"),
+        measureText(UIFont.Small, "Test Progress Modal"),
         measureText(UIFont.Small, "Test Failure Modal"),
         measureText(UIFont.Small, "Locate Selected")
     ) + 28
@@ -215,7 +221,7 @@ function DO_DebugWindow:syncWindowSize()
     local contentWidth = clamp(self:getContentWidth(), 460, math.max(520, screenW - 80))
     local listItems = self.activeList and #(self.activeList.items or {}) or 0
     local listHeight = clamp(math.max(104, listItems * 28), 120, math.floor(screenH * 0.42))
-    local contentHeight = 374 + listHeight
+    local contentHeight = 404 + listHeight
     local windowHeight = clamp(contentHeight + self:titleBarHeight() + 20, 420, screenH - 100)
 
     self:setWidth(contentWidth)
@@ -296,6 +302,11 @@ function DO_DebugWindow:layoutChildren()
     self.btnMissionCompleteModal:setX(x)
     self.btnMissionCompleteModal:setY(y)
     self.btnMissionCompleteModal:setWidth(fullW)
+    y = y + buttonH + gap
+
+    self.btnMissionProgressModal:setX(x)
+    self.btnMissionProgressModal:setY(y)
+    self.btnMissionProgressModal:setWidth(fullW)
     y = y + buttonH + 10
 
     self.btnMissionFailModal:setX(x)
@@ -494,17 +505,13 @@ function DO_DebugWindow:onTestCompletionModal()
         return
     end
 
-    if DO_CompletionModal and DO_CompletionModal.initializedCompletionBaseline ~= true and DO_CompletionModal.ProcessLatestCompletedQuest then
-        DO_CompletionModal.ProcessLatestCompletedQuest(player)
-    end
-
     local quest = DynamicObjectives.Quests
         and DynamicObjectives.Quests.DebugSimulateQuestCompletion
         and DynamicObjectives.Quests.DebugSimulateQuestCompletion(player, self.debugDifficulty, self.debugTimeLimitHours)
         or nil
 
-    if quest and DO_CompletionModal and DO_CompletionModal.ProcessLatestCompletedQuest then
-        DO_CompletionModal.ProcessLatestCompletedQuest(player)
+    if quest and DO_MissionModalShared and DO_MissionModalShared.ProcessMissionEvents then
+        DO_MissionModalShared.ProcessMissionEvents(player)
         self:refreshQuestList()
         return
     end
@@ -520,14 +527,43 @@ function DO_DebugWindow:onTestCompletionModal()
     end
 end
 
-function DO_DebugWindow:onTestFailureModal()
+function DO_DebugWindow:onTestProgressModal()
     local player = getLocalPlayer()
     if not player then
         return
     end
 
-    if DO_FailureModal and DO_FailureModal.initializedFailureBaseline ~= true and DO_FailureModal.ProcessLatestFailedQuest then
-        DO_FailureModal.ProcessLatestFailedQuest(player)
+    local quest = DynamicObjectives.Quests
+        and DynamicObjectives.Quests.DebugSimulateQuestProgress
+        and DynamicObjectives.Quests.DebugSimulateQuestProgress(player, self.debugDifficulty, self.debugTimeLimitHours)
+        or nil
+
+    if quest and DO_MissionModalShared and DO_MissionModalShared.ProcessMissionEvents then
+        DO_MissionModalShared.ProcessMissionEvents(player)
+        self:refreshQuestList()
+        return
+    end
+
+    if quest and DO_ProgressModal and DO_ProgressModal.OpenFromEvent then
+        DO_ProgressModal.OpenFromEvent({
+            kind = "progress",
+            quest = quest,
+            objective = quest.objectives and quest.objectives[1] or nil,
+            objectiveID = quest.objectives and quest.objectives[1] and quest.objectives[1].id or nil,
+        })
+        self:refreshQuestList()
+        return
+    end
+
+    if player.Say then
+        player:Say("Progress modal simulation unavailable.")
+    end
+end
+
+function DO_DebugWindow:onTestFailureModal()
+    local player = getLocalPlayer()
+    if not player then
+        return
     end
 
     local quest = DynamicObjectives.Quests
@@ -535,8 +571,8 @@ function DO_DebugWindow:onTestFailureModal()
         and DynamicObjectives.Quests.DebugSimulateQuestFailure(player, self.debugDifficulty, self.debugTimeLimitHours)
         or nil
 
-    if quest and DO_FailureModal and DO_FailureModal.ProcessLatestFailedQuest then
-        DO_FailureModal.ProcessLatestFailedQuest(player)
+    if quest and DO_MissionModalShared and DO_MissionModalShared.ProcessMissionEvents then
+        DO_MissionModalShared.ProcessMissionEvents(player)
         self:refreshQuestList()
         return
     end

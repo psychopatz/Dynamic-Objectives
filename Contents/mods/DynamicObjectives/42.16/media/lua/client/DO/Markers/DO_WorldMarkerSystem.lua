@@ -28,6 +28,12 @@ function WorldMarkers.RequestFullRefresh()
     WorldMarkers.dirty = true
 end
 
+local function hasActiveMarker()
+    return EventMarkerHandler
+        and EventMarkerHandler.markers
+        and EventMarkerHandler.markers[WorldMarkers.MARKER_ID] ~= nil
+end
+
 function WorldMarkers.Clear()
     if EventMarkerHandler and EventMarkerHandler.remove then
         EventMarkerHandler.remove(WorldMarkers.MARKER_ID)
@@ -45,7 +51,8 @@ function WorldMarkers.Refresh(playerObj)
 
     local marker = DO.Quests.GetLocatedMarkerData(playerObj)
     local signature = buildSignature(marker)
-    if not WorldMarkers.dirty and signature == WorldMarkers.lastSignature then
+    local markerMissing = marker ~= nil and hasActiveMarker() ~= true
+    if not WorldMarkers.dirty and signature == WorldMarkers.lastSignature and markerMissing ~= true then
         return
     end
 

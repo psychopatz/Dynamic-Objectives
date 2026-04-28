@@ -1,18 +1,16 @@
 require "ISUI/ISPanel"
 require "ISUI/ISButton"
 pcall(require, "DT/Common/Utils/DT_ItemIconUtils")
+pcall(require, "DO/UI/DO_MissionModalShared")
 
 DynamicObjectives = DynamicObjectives or {}
 DynamicObjectives.UI = DynamicObjectives.UI or {}
 
 DO_CompletionModal = ISPanel:derive("DO_CompletionModal")
 DO_CompletionModal.instance = DO_CompletionModal.instance or nil
-DO_CompletionModal.lastCompletedQuestID = DO_CompletionModal.lastCompletedQuestID or nil
-DO_CompletionModal.lastCompletedAt = DO_CompletionModal.lastCompletedAt or 0
-DO_CompletionModal.initializedCompletionBaseline = DO_CompletionModal.initializedCompletionBaseline or false
-DO_CompletionModal.sessionStartedAt = DO_CompletionModal.sessionStartedAt or 0
 
 local DO = DynamicObjectives
+local Shared = DO_MissionModalShared or {}
 local COMPLETION_SOUND = "DO_ObjectiveComplete"
 local ITEM_TEXTURE_CACHE = {}
 local AUTO_CLOSE_MS = 8000
@@ -250,6 +248,9 @@ local function buildRewardSummary(quest)
 end
 
 local function getLocalPlayer()
+    if Shared.GetLocalPlayer then
+        return Shared.GetLocalPlayer()
+    end
     if DO.GetLocalPlayer then
         return DO.GetLocalPlayer()
     end
@@ -260,20 +261,9 @@ local function getLocalPlayer()
 end
 
 local function playCompletionSound(player)
-    if DT_AudioManager and DT_AudioManager.PlayUISound then
-        DT_AudioManager.PlayUISound(COMPLETION_SOUND, 1.0)
+    if Shared.PlayUISound then
+        Shared.PlayUISound(COMPLETION_SOUND, player)
         return
-    end
-
-    local emitter = player and player.getEmitter and player:getEmitter() or nil
-    if emitter and emitter.playSound then
-        emitter:playSound(COMPLETION_SOUND)
-        return
-    end
-
-    local soundManager = getSoundManager and getSoundManager() or nil
-    if soundManager and soundManager.PlaySound then
-        soundManager:PlaySound(COMPLETION_SOUND, false, 1.0)
     end
 end
 
@@ -477,10 +467,14 @@ function DO_CompletionModal:applyQuest(quest)
         self.closeButton:setTitle("Close (" .. tostring(self.remainingSeconds) .. ")")
     end
 
-    local core = getCore and getCore() or nil
-    if core then
-        self:setX((core:getScreenWidth() - self.width) / 2)
-        self:setY((core:getScreenHeight() - self.height) / 2)
+    if Shared.CenterModal then
+        Shared.CenterModal(self)
+    else
+        local core = getCore and getCore() or nil
+        if core then
+            self:setX((core:getScreenWidth() - self.width) / 2)
+            self:setY((core:getScreenHeight() - self.height) / 2)
+        end
     end
     if self.closeButton then
         local buttonW = self.closeButton.width or 96
@@ -529,6 +523,14 @@ function DO_CompletionModal.Open(quest)
     return modal
 end
 
+function DO_CompletionModal.OpenFromEvent(event)
+    local quest = type(event) == "table" and event.quest or nil
+    if not quest then
+        return nil
+    end
+    return DO_CompletionModal.Open(quest)
+end
+
 function DO_CompletionModal:update()
     ISPanel.update(self)
 
@@ -554,73 +556,6 @@ function DO_CompletionModal:update()
     end
 end
 
-local function processLatestCompletedQuest(player)
-    if not player or not DO.Quests or not DO.Quests.GetLatestCompletedQuest then
-        return nil
-    end
-
-    local quest = DO.Quests.GetLatestCompletedQuest(player)
-    if not quest or tonumber(quest.completedAt) == nil then
-        if DO_CompletionModal.initializedCompletionBaseline ~= true then
-            DO_CompletionModal.initializedCompletionBaseline = true
-        end
-        return nil
-    end
-
-    local completedAt = tonumber(quest.completedAt) or 0
-    if DO_CompletionModal.sessionStartedAt <= 0 and DO.NowMs then
-        DO_CompletionModal.sessionStartedAt = tonumber(DO.NowMs()) or 0
-    end
-
-    if DO_CompletionModal.initializedCompletionBaseline ~= true then
-        DO_CompletionModal.initializedCompletionBaseline = true
-        if DO_CompletionModal.sessionStartedAt > 0 and completedAt < DO_CompletionModal.sessionStartedAt then
-            DO_CompletionModal.lastCompletedQuestID = quest.id
-            DO_CompletionModal.lastCompletedAt = completedAt
-            return nil
-        end
-    end
-
-    if DO_CompletionModal.sessionStartedAt > 0 and completedAt < DO_CompletionModal.sessionStartedAt then
-        DO_CompletionModal.lastCompletedQuestID = quest.id
-        DO_CompletionModal.lastCompletedAt = math.max(completedAt, tonumber(DO_CompletionModal.lastCompletedAt) or 0)
-        return nil
-    end
-
-    if DO_CompletionModal.lastCompletedQuestID == quest.id and completedAt <= (DO_CompletionModal.lastCompletedAt or 0) then
-        return nil
-    end
-
-    DO_CompletionModal.lastCompletedQuestID = quest.id
-    DO_CompletionModal.lastCompletedAt = completedAt
-    return DO_CompletionModal.Open(quest)
-end
-
 function DO_CompletionModal.ProcessLatestCompletedQuest(player)
-    return processLatestCompletedQuest(player or getLocalPlayer())
-end
-
-local function onTick()
-    DO_CompletionModal.ProcessLatestCompletedQuest(getLocalPlayer())
-end
-
-local function onGameStart()
-    if DO_CompletionModal.instance and DO_CompletionModal.instance.addedToUIManager == true then
-        DO_CompletionModal.instance:setVisible(false)
-        DO_CompletionModal.instance:removeFromUIManager()
-        DO_CompletionModal.instance.addedToUIManager = false
-    end
-    DO_CompletionModal.sessionStartedAt = 0
-    DO_CompletionModal.initializedCompletionBaseline = false
-    DO_CompletionModal.lastCompletedQuestID = nil
-    DO_CompletionModal.lastCompletedAt = 0
-end
-
-if Events then
-    if Events.OnTick then
-        Events.OnTick.Add(onTick)
-    end
-    if Events.OnGameStart then
-        Events.OnGameStart.Add(onGameStart)
-    end
+    return Shared.ProcessMissionEvents and Shared.ProcessMissionEvents(player or getLocalPlayer()) or nil
 end

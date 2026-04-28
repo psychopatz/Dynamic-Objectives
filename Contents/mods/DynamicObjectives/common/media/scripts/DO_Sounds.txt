@@ -9,4 +9,14 @@ module Base
             distanceMax = 20,
         }
     }
+
+    sound DO_MissionProgress
+    {
+        category = World,
+        clip
+        {
+            file = media/sound/DO_MissionProgress.ogg,
+            distanceMax = 20,
+        }
+    }
 }

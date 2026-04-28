@@ -662,8 +662,9 @@ function Quests.GetLatestFailedQuest(player)
 
     local latest = nil
     for _, quest in ipairs(store.quests or {}) do
-        if quest.status == "failed" and tonumber(quest.failedAt) then
-            if not latest or tonumber(quest.failedAt) > tonumber(latest.failedAt or 0) then
+        local failedAt = tonumber(quest.failedAt or quest.abandonedAt)
+        if (quest.status == "failed" or quest.status == "abandoned") and failedAt then
+            if not latest or failedAt > tonumber(latest.failedAt or latest.abandonedAt or 0) then
                 latest = quest
             end
         end

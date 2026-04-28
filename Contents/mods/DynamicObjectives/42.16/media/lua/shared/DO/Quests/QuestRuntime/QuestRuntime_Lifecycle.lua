@@ -144,6 +144,7 @@ function Quests.AbandonQuest(player, questID)
             quest.tracked = false
             quest.located = false
             quest.abandonedAt = DO.NowMs()
+            quest.failureReason = "abandoned"
             if Runtime.finalizeObjectiveHookQuest then
                 Runtime.finalizeObjectiveHookQuest(player, quest, "abandoned", "abandoned")
             end
@@ -164,6 +165,16 @@ function Quests.AbandonQuest(player, questID)
             Runtime.resolveTrackedQuest(player, store)
             Runtime.resolveLocatedQuest(player, store)
             Runtime.say(player, "Objective abandoned: " .. tostring(quest.name))
+            if DO.UI and DO.UI.QueueMissionEvent then
+                DO.UI.QueueMissionEvent(player, {
+                    kind = "failed",
+                    source = "abandon_quest",
+                    status = "abandoned",
+                    reason = "abandoned",
+                    occurredAt = quest.abandonedAt,
+                    quest = quest,
+                })
+            end
             Runtime.onQuestStateChanged(player)
             return true
         end
@@ -212,6 +223,16 @@ function Quests.CompleteQuest(player, questID, reason)
     Runtime.resolveTrackedQuest(player, store)
     Runtime.resolveLocatedQuest(player, store)
     Runtime.say(player, "Objective complete: " .. tostring(quest.name))
+    if DO.UI and DO.UI.QueueMissionEvent then
+        DO.UI.QueueMissionEvent(player, {
+            kind = "completed",
+            source = reason or "completed",
+            status = "completed",
+            reason = reason or "completed",
+            occurredAt = quest.completedAt,
+            quest = quest,
+        })
+    end
     Runtime.onQuestStateChanged(player)
     return true
 end
@@ -255,6 +276,16 @@ function Quests.FailQuest(player, questID, reason)
     Runtime.resolveTrackedQuest(player, store)
     Runtime.resolveLocatedQuest(player, store)
     Runtime.say(player, "Objective failed: " .. tostring(quest.name))
+    if DO.UI and DO.UI.QueueMissionEvent then
+        DO.UI.QueueMissionEvent(player, {
+            kind = "failed",
+            source = reason or "failed",
+            status = "failed",
+            reason = reason or "failed",
+            occurredAt = quest.failedAt,
+            quest = quest,
+        })
+    end
     Runtime.onQuestStateChanged(player)
     return true
 end
