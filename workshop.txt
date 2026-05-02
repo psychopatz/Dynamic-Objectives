@@ -1,4 +1,5 @@
 version=1
+id=3715741925
 title=Dynamic Objectives
 description=[h1]DYNAMIC OBJECTIVES[/h1]
 description=
@@ -15,5 +16,5 @@ description=
 description=Dynamic Trading V2 is the first integration target, but the quest state and tracking systems are owned by Dynamic Objectives.
 description=
 description=[i]This phase is intentionally backend-first and debug-driven while the public-facing acquisition flow is still under construction.[/i]
-tags=Build 42;Interface;Items;Misc;Multiplayer;QoL;WIP
+tags=Build 42;Interface;Items;Misc;Multiplayer;Realistic;QoL;WIP
 visibility=public
