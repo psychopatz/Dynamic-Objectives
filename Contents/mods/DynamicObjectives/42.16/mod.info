@@ -7,3 +7,4 @@ author=Psychopatz
 category=features
 version=0.1.0
 versionMin=42.16
+require=DynamicTradingCommon

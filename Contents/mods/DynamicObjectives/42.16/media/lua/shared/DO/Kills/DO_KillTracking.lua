@@ -2,12 +2,14 @@ DynamicObjectives = DynamicObjectives or {}
 DynamicObjectives.Kills = DynamicObjectives.Kills or {}
 DynamicObjectives.Loot = DynamicObjectives.Loot or {}
 
+require "Misc/DT_CorpseLootRuntime"
+
 local DO = DynamicObjectives
 local Kills = DO.Kills
 local Loot = DO.Loot
 local Runtime = DO.Quests and DO.Quests.Runtime or {}
 
-if isServer() and not isClient() then
+if isClient() and not isServer() then
     return
 end
 
@@ -54,6 +56,34 @@ end
 
 local function getContainerItems(container)
     return container and container.getItems and container:getItems() or nil
+end
+
+local function addItemToContainer(container, fullType, configureItem)
+    if not container or not fullType then
+        return nil
+    end
+
+    if DTCorpseLootRuntime and DTCorpseLootRuntime.AddItemToContainer then
+        return DTCorpseLootRuntime.AddItemToContainer(container, fullType, configureItem)
+    end
+
+    local item = container:AddItem(fullType)
+    if not item then
+        return nil
+    end
+
+    if type(configureItem) == "function" then
+        local ok = pcall(configureItem, item)
+        if not ok then
+            return nil
+        end
+    end
+
+    if sendAddItemToContainer and isServer and isServer() then
+        sendAddItemToContainer(container, item)
+    end
+
+    return item
 end
 
 local function countQuestItemsInContainer(container, questID, objectiveID, playerKey)
@@ -130,41 +160,49 @@ local function spawnQuestDropInContainer(container, corpseModData, player, quest
         return nil
     end
 
-    local item = container:AddItem(objective.dropItemType)
+    local item = addItemToContainer(container, objective.dropItemType, function(createdItem)
+        local modData = createdItem:getModData()
+        modData.DOQuestDrop = true
+        modData.DOQuestID = quest.id
+        modData.DOQuestObjectiveID = objective.id
+        modData.DOQuestPlayerKey = DO.GetPlayerKey(player)
+        modData.DOQuestDropIndex = dropState.spawnedCount + 1
+
+        createdItem:setName(createdItem:getName() .. " (" .. tostring(quest.id) .. ")")
+        createdItem:setTooltip("Objective item for " .. tostring(quest.name or quest.id))
+    end)
     if not item then
         return nil
     end
-
-    local modData = item:getModData()
-    modData.DOQuestDrop = true
-    modData.DOQuestID = quest.id
-    modData.DOQuestObjectiveID = objective.id
-    modData.DOQuestPlayerKey = DO.GetPlayerKey(player)
-    modData.DOQuestDropIndex = dropState.spawnedCount + 1
-
-    item:setName(item:getName() .. " (" .. tostring(quest.id) .. ")")
-    item:setTooltip("Objective item for " .. tostring(quest.name or quest.id))
 
     corpseModData.DOQuestDropSpawned[dropKey] = true
     dropState.spawnedCount = dropState.spawnedCount + 1
     dropState.spawned = dropState.spawnedCount > 0
     dropState.spawnedAt = DO.NowMs()
 
-    if sendAddItemToContainer then
-        sendAddItemToContainer(container, item)
-    end
-
     killLog("Quest", "Loot", "Spawned corpse drop for " .. tostring(dropKey))
     return item
 end
 
-local function getLocalPlayerForKey(playerKey)
-    local player = DO.GetLocalPlayer()
-    if not player then
+local function getPlayerForKey(playerKey)
+    if not playerKey then
         return nil
     end
 
-    if DO.GetPlayerKey(player) == playerKey then
+    if isServer and isServer() and getOnlinePlayers then
+        local onlinePlayers = getOnlinePlayers()
+        if onlinePlayers then
+            for index = 0, onlinePlayers:size() - 1 do
+                local onlinePlayer = onlinePlayers:get(index)
+                if onlinePlayer and DO.GetPlayerKey(onlinePlayer) == playerKey then
+                    return onlinePlayer
+                end
+            end
+        end
+    end
+
+    local player = DO.GetLocalPlayer()
+    if player and DO.GetPlayerKey(player) == playerKey then
         return player
     end
 
@@ -202,14 +240,14 @@ function Kills.ResolveKiller(zombie)
 
     local cached = Kills.LastHitCache[zombie]
     if cached and (DO.NowMs() - (tonumber(cached.timestamp) or 0)) <= Kills.LAST_HIT_TTL_MS then
-        return getLocalPlayerForKey(cached.playerKey)
+        return getPlayerForKey(cached.playerKey)
     end
 
     local modData = zombie:getModData()
     if modData and modData.DO_LastHitPlayerKey then
         local age = DO.NowMs() - (tonumber(modData.DO_LastHitAt) or 0)
         if age <= Kills.LAST_HIT_TTL_MS then
-            return getLocalPlayerForKey(modData.DO_LastHitPlayerKey)
+            return getPlayerForKey(modData.DO_LastHitPlayerKey)
         end
     end
 
@@ -221,9 +259,48 @@ function Loot.SpawnQuestCorpseDrop(zombie, player, quest, objective)
         return nil
     end
 
-    local inventory = zombie:getInventory()
-    local corpseModData = zombie:getModData()
-    return spawnQuestDropInContainer(inventory, corpseModData, player, quest, objective)
+    local corpseSourceModData = zombie:getModData() or {}
+    local playerKey = DO.GetPlayerKey(player)
+    local deathX = math.floor(zombie:getX())
+    local deathY = math.floor(zombie:getY())
+    local deathZ = math.floor(zombie:getZ())
+    local encounterQuestID = tostring(corpseSourceModData.DOQuestEncounterQuestID or quest.id)
+    local encounterID = tostring(corpseSourceModData.DOQuestEncounterID or "encounter_main")
+    local encounterPlayerKey = tostring(corpseSourceModData.DOQuestEncounterPlayerKey or playerKey)
+
+    if not DTCorpseLootRuntime or not DTCorpseLootRuntime.QueueCorpseMutation then
+        local inventory = zombie:getInventory()
+        return spawnQuestDropInContainer(inventory, corpseSourceModData, player, quest, objective)
+    end
+
+    local corpseToken = DTCorpseLootRuntime.EnsureCorpseToken and DTCorpseLootRuntime.EnsureCorpseToken(zombie, "do_quest_drop") or nil
+    local queuedKey = DTCorpseLootRuntime.QueueCorpseMutation({
+        label = "do_quest_drop",
+        x = deathX,
+        y = deathY,
+        z = deathZ,
+        radius = 1,
+        ttlTicks = 240,
+        matcher = function(corpse, corpseModData, corpseX, corpseY, corpseZ)
+            corpseModData = corpseModData or {}
+            if corpseToken and DTCorpseLootRuntime.MatchCorpseByToken and DTCorpseLootRuntime.MatchCorpseByToken(corpseToken, corpseModData) then
+                return true
+            end
+
+            return tostring(corpseModData.DOQuestEncounterQuestID or "") == encounterQuestID
+                and tostring(corpseModData.DOQuestEncounterID or "") == encounterID
+                and tostring(corpseModData.DOQuestEncounterPlayerKey or "") == encounterPlayerKey
+                and corpseX == deathX
+                and corpseY == deathY
+                and corpseZ == deathZ
+        end,
+        apply = function(corpse, container)
+            local corpseModData = corpse and corpse.getModData and corpse:getModData() or {}
+            return spawnQuestDropInContainer(container, corpseModData, player, quest, objective) ~= nil
+        end,
+    })
+
+    return queuedKey
 end
 
 function Loot.EnsureQuestCorpseDropInArea(player, quest, objective, zoneState)
