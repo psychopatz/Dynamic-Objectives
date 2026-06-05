@@ -13,6 +13,19 @@ local SETTINGS_SECTION = "objective_tracker"
 local HEADER_HEIGHT = 34
 local DRAG_THRESHOLD = 4
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 local function getLocalPlayer()
     if DO.GetLocalPlayer then
         return DO.GetLocalPlayer()
@@ -62,12 +75,19 @@ local function formatRemainingHours(hours)
     local wholeHours = math.floor(totalMinutes / 60)
     local minutes = totalMinutes % 60
     if wholeHours <= 0 then
-        return string.format("%dm remaining", minutes)
+        return T("DOCommon_UI_ObjectiveHUD_MinutesRemaining", "{minutes}m remaining", {
+            minutes = minutes
+        })
     end
     if minutes <= 0 then
-        return string.format("%dh remaining", wholeHours)
+        return T("DOCommon_UI_ObjectiveHUD_HoursRemaining", "{hours}h remaining", {
+            hours = wholeHours
+        })
     end
-    return string.format("%dh %dm remaining", wholeHours, minutes)
+    return T("DOCommon_UI_ObjectiveHUD_HoursMinutesRemaining", "{hours}h {minutes}m remaining", {
+        hours = wholeHours,
+        minutes = minutes,
+    })
 end
 
 local function pointInRect(x, y, rect)
@@ -180,15 +200,17 @@ function DO_ObjectiveHUD:measureExpandedSize()
     local xPad = 14
     local bodyWidth = 300
     local data = self.data or {}
-    local locateLabel = data.located == true and "UNLOCATE" or "LOCATE"
+    local locateLabel = data.located == true
+        and T("DOCommon_UI_ObjectiveHUD_Unlocate", "UNLOCATE")
+        or T("DOCommon_UI_ObjectiveHUD_Locate", "LOCATE")
     local locateWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
-    local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
+    local missionsWidth = math.max(82, measureText(UIFont.Small, T("DOCommon_UI_ObjectiveHUD_Missions", "MISSIONS")) + 18)
     local pinWidth = 34
     local baseHeaderWidth = 64 + locateWidth + missionsWidth + pinWidth + 18
 
-    bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.title or data.name or "Objective") + baseHeaderWidth)
+    bodyWidth = math.max(bodyWidth, measureText(UIFont.Medium, data.title or data.name or T("DOCommon_UI_ObjectiveHUD_Objective", "Objective")) + baseHeaderWidth)
     if data.giverName and data.giverName ~= "" then
-        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.giverName) .. " - " .. tostring(data.giverFactionName or "Independent")) + 40)
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.giverName) .. " - " .. tostring(data.giverFactionName or T("DOCommon_UI_ObjectiveHUD_Independent", "Independent"))) + 40)
     end
     bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.chainSummary or "")) + 40)
     bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, tostring(data.targetLabel or "")) + 40)
@@ -196,23 +218,32 @@ function DO_ObjectiveHUD:measureExpandedSize()
         bodyWidth,
         measureText(
             UIFont.Small,
-            string.format("Threat: %s  x%.2f", tostring(data.difficultyLabel or "Unknown"), tonumber(data.difficulty) or 1.0)
+            T("DOCommon_UI_ObjectiveHUD_Threat", "Threat: {label}  x{difficulty}", {
+                label = tostring(data.difficultyLabel or T("DOCommon_UI_ObjectiveHUD_Unknown", "Unknown")),
+                difficulty = string.format("%.2f", tonumber(data.difficulty) or 1.0)
+            })
         ) + 40
     )
 
     if tonumber(data.timeLimitHours) and tonumber(data.timeLimitHours) > 0 then
-        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Expires: " .. tostring(formatRemainingHours(data.timeRemainingHours) or "Expired")) + 40)
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, T("DOCommon_UI_ObjectiveHUD_Expires", "Expires: {value}", {
+            value = tostring(formatRemainingHours(data.timeRemainingHours) or T("DOCommon_UI_ObjectiveHUD_Expired", "Expired"))
+        })) + 40)
     end
     if data.rewardPreview and data.rewardPreview ~= "" then
-        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Rewards: " .. tostring(data.rewardPreview)) + 40)
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, T("DOCommon_UI_ObjectiveHUD_Rewards", "Rewards: {value}", {
+            value = tostring(data.rewardPreview)
+        })) + 40)
     end
     if data.currentObjectiveLabel and data.currentObjectiveLabel ~= "" then
-        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, "Current: " .. tostring(data.currentObjectiveLabel)) + 40)
+        bodyWidth = math.max(bodyWidth, measureText(UIFont.Small, T("DOCommon_UI_ObjectiveHUD_Current", "Current: {value}", {
+            value = tostring(data.currentObjectiveLabel)
+        })) + 40)
     end
     if data.primaryProgress then
         bodyWidth = math.max(
             bodyWidth,
-            measureText(UIFont.Small, tostring(data.primaryProgress.label or "Progress"))
+            measureText(UIFont.Small, tostring(data.primaryProgress.label or T("DOCommon_UI_ObjectiveHUD_Progress", "Progress")))
                 + measureText(UIFont.Medium, tostring(data.primaryProgress.value or ""))
                 + 80
         )
@@ -221,7 +252,7 @@ function DO_ObjectiveHUD:measureExpandedSize()
 
     for _, line in ipairs(data.lines or {}) do
         local rowWidth = 44
-            + measureText(UIFont.Small, tostring(line.label or "Step"))
+            + measureText(UIFont.Small, tostring(line.label or T("DOCommon_UI_MissionViewer_Objective", "Objective")))
             + measureText(UIFont.Small, tostring(line.value or ""))
             + 40
         bodyWidth = math.max(bodyWidth, rowWidth)
@@ -593,7 +624,7 @@ function DO_ObjectiveHUD:renderCollapsed()
     if icon then
         self:drawTextureScaled(icon, pad, pad, iconSize, iconSize, 1, 1, 1, 1)
     else
-        self:drawTextCentre("OBJ", self.width / 2, 11, 0.95, 0.82, 0.52, 1, UIFont.Small)
+        self:drawTextCentre(T("DOCommon_UI_ObjectiveHUD_HeaderShort", "OBJ"), self.width / 2, 11, 0.95, 0.82, 0.52, 1, UIFont.Small)
     end
 
     local dot = self.data and self.data.located == true and { r = 0.36, g = 0.84, b = 0.48 } or { r = 0.95, g = 0.95, b = 0.42 }
@@ -605,9 +636,11 @@ function DO_ObjectiveHUD:renderExpanded()
     local y = 8
     local titleRight = self.width - 14
     local icon = self.iconTexture
-    local locateLabel = self.data.located == true and "UNLOCATE" or "LOCATE"
+    local locateLabel = self.data.located == true
+        and T("DOCommon_UI_ObjectiveHUD_Unlocate", "UNLOCATE")
+        or T("DOCommon_UI_ObjectiveHUD_Locate", "LOCATE")
     local locateWidth = math.max(74, measureText(UIFont.Small, locateLabel) + 18)
-    local missionsWidth = math.max(82, measureText(UIFont.Small, "MISSIONS") + 18)
+    local missionsWidth = math.max(82, measureText(UIFont.Small, T("DOCommon_UI_ObjectiveHUD_Missions", "MISSIONS")) + 18)
     local pinWidth = 34
     local buttonY = 5
     local buttonH = 22
@@ -625,14 +658,17 @@ function DO_ObjectiveHUD:renderExpanded()
         self:drawTextureScaled(icon, x, 5, 22, 22, 1, 1, 1, 1)
     end
 
-    self:drawText("OBJECTIVE TRACKER", x + 28, y, 0.95, 0.82, 0.52, 0.98, UIFont.Small)
+    self:drawText(T("DOCommon_UI_ObjectiveHUD_Header", "OBJECTIVE TRACKER"), x + 28, y, 0.95, 0.82, 0.52, 0.98, UIFont.Small)
     self:drawPinToggle(pinX, buttonY, pinWidth, buttonH)
-    self:drawHeaderButton(missionsX, buttonY, missionsWidth, buttonH, "MISSIONS", false)
+    self:drawHeaderButton(missionsX, buttonY, missionsWidth, buttonH, T("DOCommon_UI_ObjectiveHUD_Missions", "MISSIONS"), false)
     self:drawHeaderButton(locateX, buttonY, locateWidth, buttonH, locateLabel, self.data.located == true)
 
     y = 40
     self:drawTextRight(
-        string.format("STEP %d / %d", tonumber(self.data.currentStep) or 1, tonumber(self.data.totalSteps) or 1),
+        T("DOCommon_UI_ObjectiveHUD_Step", "STEP {current} / {total}", {
+            current = tonumber(self.data.currentStep) or 1,
+            total = tonumber(self.data.totalSteps) or 1,
+        }),
         titleRight,
         y,
         0.86,
@@ -641,7 +677,7 @@ function DO_ObjectiveHUD:renderExpanded()
         0.98,
         UIFont.Small
     )
-    self:drawText(self.data.title or self.data.name or "Objective", x, y, 1, 1, 1, 0.98, UIFont.Medium)
+    self:drawText(self.data.title or self.data.name or T("DOCommon_UI_ObjectiveHUD_Objective", "Objective"), x, y, 1, 1, 1, 0.98, UIFont.Medium)
     y = y + 22
 
     if self.data.chainSummary and self.data.chainSummary ~= "" then
@@ -651,7 +687,7 @@ function DO_ObjectiveHUD:renderExpanded()
 
     if self.data.giverName and self.data.giverName ~= "" then
         self:drawText(
-            tostring(self.data.giverName) .. " - " .. tostring(self.data.giverFactionName or "Independent"),
+            tostring(self.data.giverName) .. " - " .. tostring(self.data.giverFactionName or T("DOCommon_UI_ObjectiveHUD_Independent", "Independent")),
             x,
             y,
             0.72,
@@ -670,7 +706,10 @@ function DO_ObjectiveHUD:renderExpanded()
 
     if self.data.difficultyLabel and self.data.difficultyLabel ~= "" then
         self:drawText(
-            string.format("Threat: %s  x%.2f", tostring(self.data.difficultyLabel), tonumber(self.data.difficulty) or 1.0),
+            T("DOCommon_UI_ObjectiveHUD_Threat", "Threat: {label}  x{difficulty}", {
+                label = tostring(self.data.difficultyLabel),
+                difficulty = string.format("%.2f", tonumber(self.data.difficulty) or 1.0)
+            }),
             x,
             y,
             0.92,
@@ -683,22 +722,28 @@ function DO_ObjectiveHUD:renderExpanded()
     end
 
     if tonumber(self.data.timeLimitHours) and tonumber(self.data.timeLimitHours) > 0 then
-        local remainingText = formatRemainingHours(self.data.timeRemainingHours) or "Expired"
+        local remainingText = formatRemainingHours(self.data.timeRemainingHours) or T("DOCommon_UI_ObjectiveHUD_Expired", "Expired")
         local timeColor = { r = 0.72, g = 0.86, b = 0.98 }
         if tonumber(self.data.timeRemainingHours) and tonumber(self.data.timeRemainingHours) <= 1 then
             timeColor = { r = 0.98, g = 0.56, b = 0.42 }
         end
-        self:drawText("Expires: " .. remainingText, x, y, timeColor.r, timeColor.g, timeColor.b, 0.94, UIFont.Small)
+        self:drawText(T("DOCommon_UI_ObjectiveHUD_Expires", "Expires: {value}", {
+            value = remainingText
+        }), x, y, timeColor.r, timeColor.g, timeColor.b, 0.94, UIFont.Small)
         y = y + 18
     end
 
     if self.data.rewardPreview and self.data.rewardPreview ~= "" then
-        self:drawText("Rewards: " .. tostring(self.data.rewardPreview), x, y, 0.72, 0.9, 0.72, 0.94, UIFont.Small)
+        self:drawText(T("DOCommon_UI_ObjectiveHUD_Rewards", "Rewards: {value}", {
+            value = tostring(self.data.rewardPreview)
+        }), x, y, 0.72, 0.9, 0.72, 0.94, UIFont.Small)
         y = y + 18
     end
 
     if self.data.currentObjectiveLabel and self.data.currentObjectiveLabel ~= "" then
-        self:drawText("Current: " .. tostring(self.data.currentObjectiveLabel), x, y, 0.97, 0.72, 0.42, 0.96, UIFont.Small)
+        self:drawText(T("DOCommon_UI_ObjectiveHUD_Current", "Current: {value}", {
+            value = tostring(self.data.currentObjectiveLabel)
+        }), x, y, 0.97, 0.72, 0.42, 0.96, UIFont.Small)
         y = y + 20
     end
 
@@ -706,14 +751,14 @@ function DO_ObjectiveHUD:renderExpanded()
     if progress then
         self:drawRect(x, y, self.width - 28, 48, 0.24, 0.16, 0.18, 0.21)
         self:drawRectBorder(x, y, self.width - 28, 48, 0.22, 0.9, 0.9, 0.9)
-        self:drawText(tostring(progress.label or "Progress"), x + 10, y + 7, 0.78, 0.82, 0.9, 0.95, UIFont.Small)
+        self:drawText(tostring(progress.label or T("DOCommon_UI_ObjectiveHUD_Progress", "Progress")), x + 10, y + 7, 0.78, 0.82, 0.9, 0.95, UIFont.Small)
         self:drawTextRight(tostring(progress.value or ""), self.width - 24, y + 6, 1, 1, 1, 0.98, UIFont.Medium)
         self:drawText(tostring(progress.detail or ""), x + 10, y + 25, 0.82, 0.84, 0.86, 0.88, UIFont.Small)
         drawProgressBar(self, x + 10, y + 40, self.width - 48, progress.ratio or 0, progress.color or { r = 0.86, g = 0.28, b = 0.22 })
         y = y + 62
     end
 
-    self:drawText("Checklist", x, y, 0.92, 0.94, 0.98, 0.94, UIFont.Small)
+    self:drawText(T("DOCommon_UI_ObjectiveHUD_Checklist", "Checklist"), x, y, 0.92, 0.94, 0.98, 0.94, UIFont.Small)
     y = y + 18
 
     for _, line in ipairs(self.data.lines or {}) do
@@ -722,7 +767,7 @@ function DO_ObjectiveHUD:renderExpanded()
         local checkboxX = x
         local textX = checkboxX + 22
         local valueText = tostring(line.value or "")
-        local labelText = tostring(line.label or "Step")
+        local labelText = tostring(line.label or T("DOCommon_UI_MissionViewer_Objective", "Objective"))
 
         if line.current == true then
             self:drawRect(x - 6, rowTop, self.width - 16, rowHeight, 0.12, 0.95, 0.62, 0.22)

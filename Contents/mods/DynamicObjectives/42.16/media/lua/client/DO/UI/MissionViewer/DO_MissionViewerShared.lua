@@ -5,6 +5,19 @@ DO_MissionViewerShared = DO_MissionViewerShared or {}
 
 local DO = DynamicObjectives
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 function DO_MissionViewerShared.getLocalPlayer()
     if DO.GetLocalPlayer then
         return DO.GetLocalPlayer()
@@ -25,12 +38,15 @@ function DO_MissionViewerShared.formatRemainingHours(hours)
     local wholeHours = math.floor(totalMinutes / 60)
     local minutes = totalMinutes % 60
     if wholeHours <= 0 then
-        return string.format("%dm left", minutes)
+        return T("DOCommon_UI_MissionViewer_MinutesLeft", "{minutes}m left", { minutes = minutes })
     end
     if minutes <= 0 then
-        return string.format("%dh left", wholeHours)
+        return T("DOCommon_UI_MissionViewer_HoursLeft", "{hours}h left", { hours = wholeHours })
     end
-    return string.format("%dh %dm left", wholeHours, minutes)
+    return T("DOCommon_UI_MissionViewer_HoursMinutesLeft", "{hours}h {minutes}m left", {
+        hours = wholeHours,
+        minutes = minutes,
+    })
 end
 
 function DO_MissionViewerShared.getStatusColor(status)
@@ -74,7 +90,7 @@ function DO_MissionViewerShared.getTertiaryText(summary)
 
     local remaining = DO_MissionViewerShared.formatRemainingHours(summary.timeRemainingHours)
     if remaining then
-        return "Expires: " .. remaining
+        return T("DOCommon_UI_MissionViewer_Expires", "Expires: {value}", { value = remaining })
     end
     return tostring(summary.targetLabel or summary.rewardPreview or "")
 end
@@ -94,16 +110,20 @@ end
 
 function DO_MissionViewerShared.buildDetailText(detail)
     if not detail then
-        return " <RGB:0.65,0.65,0.65> Select a mission to inspect its objectives and rewards. <LINE> "
+        return " <RGB:0.65,0.65,0.65> " .. T("DOCommon_UI_MissionViewer_SelectMission", "Select a mission to inspect its objectives and rewards.") .. " <LINE> "
     end
 
     local parts = {}
     local statusColor = DO_MissionViewerShared.getStatusColor(detail.status)
     local remaining = DO_MissionViewerShared.formatRemainingHours(detail.timeRemainingHours)
 
-    appendLine(parts, statusColor, "Status: " .. tostring(detail.statusLabel or "Active"))
+    appendLine(parts, statusColor, T("DOCommon_UI_MissionViewer_Status", "Status: {value}", {
+        value = tostring(detail.statusLabel or T("DOCommon_UI_MissionViewer_Active", "Active"))
+    }))
     if detail.title and detail.title ~= "" and detail.title ~= detail.name then
-        appendLine(parts, { r = 0.98, g = 0.9, b = 0.62 }, "Contract: " .. tostring(detail.title))
+        appendLine(parts, { r = 0.98, g = 0.9, b = 0.62 }, T("DOCommon_UI_MissionViewer_Contract", "Contract: {value}", {
+            value = tostring(detail.title)
+        }))
     end
     if detail.giverName and detail.giverName ~= "" then
         local issuer = detail.giverTitle and detail.giverTitle ~= ""
@@ -112,57 +132,86 @@ function DO_MissionViewerShared.buildDetailText(detail)
         if detail.giverFactionName and detail.giverFactionName ~= "" then
             issuer = issuer .. " - " .. tostring(detail.giverFactionName)
         end
-        appendLine(parts, { r = 0.76, g = 0.86, b = 0.98 }, "Issuer: " .. issuer)
+        appendLine(parts, { r = 0.76, g = 0.86, b = 0.98 }, T("DOCommon_UI_MissionViewer_Issuer", "Issuer: {value}", {
+            value = issuer
+        }))
     end
     if detail.chainSummary then
-        appendLine(parts, { r = 0.62, g = 0.82, b = 1.0 }, "Chain: " .. tostring(detail.chainSummary))
+        appendLine(parts, { r = 0.62, g = 0.82, b = 1.0 }, T("DOCommon_UI_MissionViewer_Chain", "Chain: {value}", {
+            value = tostring(detail.chainSummary)
+        }))
     end
     if detail.themeID and detail.themeID ~= "" then
-        appendLine(parts, { r = 0.78, g = 0.88, b = 0.74 }, "Theme: " .. tostring(detail.themeID))
+        appendLine(parts, { r = 0.78, g = 0.88, b = 0.74 }, T("DOCommon_UI_MissionViewer_Theme", "Theme: {value}", {
+            value = tostring(detail.themeID)
+        }))
     end
     if detail.targetLabel and detail.targetLabel ~= "" then
-        appendLine(parts, { r = 0.82, g = 0.84, b = 0.88 }, "Target: " .. tostring(detail.targetLabel))
+        appendLine(parts, { r = 0.82, g = 0.84, b = 0.88 }, T("DOCommon_UI_MissionViewer_Target", "Target: {value}", {
+            value = tostring(detail.targetLabel)
+        }))
     end
     appendLine(
         parts,
         { r = 0.96, g = 0.82, b = 0.62 },
-        string.format(
-            "Threat: %s  x%.2f",
-            tostring(detail.difficultyLabel or "Unknown"),
-            tonumber(detail.difficulty) or 1.0
-        )
+        T("DOCommon_UI_MissionViewer_Threat", "Threat: {label}  x{difficulty}", {
+            label = tostring(detail.difficultyLabel or T("DOCommon_UI_ObjectiveHUD_Unknown", "Unknown")),
+            difficulty = string.format("%.2f", tonumber(detail.difficulty) or 1.0)
+        })
     )
     if remaining then
         appendLine(
             parts,
             detail.expiresSoon and { r = 0.98, g = 0.56, b = 0.42 } or { r = 0.72, g = 0.86, b = 0.98 },
-            "Expires: " .. remaining
+            T("DOCommon_UI_MissionViewer_Expires", "Expires: {value}", { value = remaining })
         )
     end
     if detail.rewardPreview and detail.rewardPreview ~= "" then
-        appendLine(parts, { r = 0.7, g = 0.92, b = 0.68 }, "Rewards: " .. tostring(detail.rewardPreview))
+        appendLine(parts, { r = 0.7, g = 0.92, b = 0.68 }, T("DOCommon_UI_MissionViewer_Rewards", "Rewards: {value}", {
+            value = tostring(detail.rewardPreview)
+        }))
     end
     if detail.currentObjectiveLabel and detail.currentObjectiveLabel ~= "" then
-        appendLine(parts, { r = 1.0, g = 0.78, b = 0.42 }, "Current: " .. tostring(detail.currentObjectiveLabel))
+        appendLine(parts, { r = 1.0, g = 0.78, b = 0.42 }, T("DOCommon_UI_MissionViewer_Current", "Current: {value}", {
+            value = tostring(detail.currentObjectiveLabel)
+        }))
     end
 
     appendLine(parts, nil, "")
-    appendLine(parts, { r = 0.92, g = 0.94, b = 0.98 }, "Checklist")
+    appendLine(parts, { r = 0.92, g = 0.94, b = 0.98 }, T("DOCommon_UI_MissionViewer_Checklist", "Checklist"))
     for _, line in ipairs(detail.lines or {}) do
-        local prefix = line.completed == true and "[Done] " or (line.current == true and "[Now] " or "[ ] ")
         local color = line.completed == true and { r = 0.58, g = 0.9, b = 0.66 } or { r = 0.86, g = 0.86, b = 0.88 }
         if line.current == true then
             color = { r = 1.0, g = 0.86, b = 0.62 }
         end
-        appendLine(parts, color, prefix .. tostring(line.label or "Objective") .. " - " .. tostring(line.value or ""))
+        if line.completed == true then
+            appendLine(parts, color, T("DOCommon_UI_MissionViewer_LineDone", "[Done] {label} - {value}", {
+                label = tostring(line.label or T("DOCommon_UI_MissionViewer_Objective", "Objective")),
+                value = tostring(line.value or "")
+            }))
+        elseif line.current == true then
+            appendLine(parts, color, T("DOCommon_UI_MissionViewer_LineNow", "[Now] {label} - {value}", {
+                label = tostring(line.label or T("DOCommon_UI_MissionViewer_Objective", "Objective")),
+                value = tostring(line.value or "")
+            }))
+        else
+            appendLine(parts, color, T("DOCommon_UI_MissionViewer_LinePending", "[ ] {label} - {value}", {
+                label = tostring(line.label or T("DOCommon_UI_MissionViewer_Objective", "Objective")),
+                value = tostring(line.value or "")
+            }))
+        end
     end
 
     if detail.status == "completed" and detail.completionReason then
         appendLine(parts, nil, "")
-        appendLine(parts, statusColor, "Completed via: " .. tostring(detail.completionReason))
+        appendLine(parts, statusColor, T("DOCommon_UI_MissionViewer_CompletedVia", "Completed via: {value}", {
+            value = tostring(detail.completionReason)
+        }))
     elseif detail.status == "failed" and detail.failureReason then
         appendLine(parts, nil, "")
-        appendLine(parts, statusColor, "Failed due to: " .. tostring(detail.failureReason))
+        appendLine(parts, statusColor, T("DOCommon_UI_MissionViewer_FailedDueTo", "Failed due to: {value}", {
+            value = tostring(detail.failureReason)
+        }))
     end
 
     return table.concat(parts)

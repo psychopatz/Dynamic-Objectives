@@ -16,6 +16,19 @@ local BOX_ANIM_MS = 260
 local ENTRY_STAGGER_MS = 90
 local ENTRY_ANIM_MS = 280
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 local function clamp(value, minValue, maxValue)
     if Shared.Clamp then
         return Shared.Clamp(value, minValue, maxValue)
@@ -63,34 +76,37 @@ end
 
 local function buildObjectiveStatus(objective)
     if type(objective) ~= "table" then
-        return "Pending"
+        return T("DOCommon_UI_Progress_Pending", "Pending")
     end
 
     if objective.completed == true then
-        return "Done"
+        return T("DOCommon_UI_Progress_Done", "Done")
     end
 
     local progress = math.max(0, math.floor(tonumber(objective.progress) or 0))
     local required = math.max(1, math.floor(tonumber(objective.required) or 1))
     if objective.type == "pickupItem" then
-        return "Pending pickup"
+        return T("DOCommon_UI_Progress_PendingPickup", "Pending pickup")
     end
     if objective.type == "areaClear" then
-        return progress > 0 and string.format("%d / %d cleared", progress, required) or "Secure the area"
+        return progress > 0 and T("DOCommon_UI_Progress_Cleared", "{progress} / {required} cleared", {
+            progress = progress,
+            required = required,
+        }) or T("DOCommon_UI_Progress_SecureArea", "Secure the area")
     end
     if objective.type == "claimRewards" then
-        return "Claim your payout"
+        return T("DOCommon_UI_Progress_ClaimPayout", "Claim your payout")
     end
     if objective.type == "deliverItem" then
-        return string.format("%d / %d delivered", progress, required)
+        return T("DOCommon_UI_Progress_Delivered", "{progress} / {required} delivered", { progress = progress, required = required })
     end
     if objective.type == "obtainDrop" then
-        return string.format("%d / %d recovered", progress, required)
+        return T("DOCommon_UI_Progress_Recovered", "{progress} / {required} recovered", { progress = progress, required = required })
     end
     if objective.type == "kill" then
-        return string.format("%d / %d cleared", progress, required)
+        return T("DOCommon_UI_Progress_Cleared", "{progress} / {required} cleared", { progress = progress, required = required })
     end
-    return string.format("%d / %d", progress, required)
+    return T("DOCommon_UI_Progress_Generic", "{progress} / {required}", { progress = progress, required = required })
 end
 
 local function buildChecklist(quest)
@@ -99,7 +115,9 @@ local function buildChecklist(quest)
         entries[#entries + 1] = {
             index = index,
             id = tostring(objective.id or ("objective_" .. tostring(index))),
-            label = tostring(objective.label or objective.type or ("Objective " .. tostring(index))),
+            label = tostring(objective.label or objective.type or T("DOCommon_UI_Progress_Objective", "Objective {index}", {
+                index = tostring(index)
+            })),
             completed = objective.completed == true,
             status = buildObjectiveStatus(objective),
         }
@@ -148,14 +166,14 @@ local function buildSummary(event)
     else
         objective = findObjective(quest, event and event.objectiveID or nil) or {}
     end
-    local giverName = tostring(quest.giverName or "Mission Contact")
-    local factionName = tostring(quest.giverFactionName or "Independent")
-    local objectiveLabel = tostring(objective.label or objective.id or "Objective updated")
+    local giverName = tostring(quest.giverName or T("DOCommon_UI_Progress_MissionContact", "Mission Contact"))
+    local factionName = tostring(quest.giverFactionName or T("DOCommon_UI_Progress_Independent", "Independent"))
+    local objectiveLabel = tostring(objective.label or objective.id or T("DOCommon_UI_Progress_ObjectiveUpdated", "Objective updated"))
     local highlightedObjectiveID = tostring(objective.id or (event and event.objectiveID) or "")
     local checklist = prioritizeChecklistEntry(buildChecklist(quest), highlightedObjectiveID)
 
     return {
-        title = tostring(quest.title or quest.name or "Mission Progress"),
+        title = tostring(quest.title or quest.name or T("DOCommon_UI_Progress_Title", "Mission Progress")),
         objectiveLabel = objectiveLabel,
         giverLine = giverName .. " - " .. factionName,
         objectiveStatus = buildObjectiveStatus(objective),
@@ -171,7 +189,7 @@ end
 function DO_ProgressModal:createChildren()
     ISPanel.createChildren(self)
 
-    self.closeButton = ISButton:new((self.width - 96) / 2, self.height - 42, 96, 26, "Close", self, self.onCloseButton)
+    self.closeButton = ISButton:new((self.width - 96) / 2, self.height - 42, 96, 26, T("DOCommon_UI_Close", "Close"), self, self.onCloseButton)
     self.closeButton:initialise()
     self.closeButton.backgroundColor = { r = 0.28, g = 0.22, b = 0.08, a = 0.92 }
     self.closeButton.borderColor = { r = 1, g = 1, b = 1, a = 0.35 }
@@ -208,7 +226,7 @@ function DO_ProgressModal:drawChecklistEntry(entry, x, y, w, highlight)
     self:drawRect(drawX, drawY, 4, drawH, 0.95 * alpha, accent.r, accent.g, accent.b)
     self:drawRectBorder(drawX, drawY, drawW, drawH, 0.34 * alpha, accent.r, accent.g, accent.b)
 
-    local marker = entry.completed and "DONE" or "NEXT"
+    local marker = entry.completed and T("DOCommon_UI_Progress_MarkerDone", "DONE") or T("DOCommon_UI_Progress_MarkerNext", "NEXT")
     local markerColor = entry.completed and { r = 0.98, g = 0.9, b = 0.42 } or { r = 0.9, g = 0.82, b = 0.5 }
     self:drawText(marker, drawX + 10, drawY + 9, markerColor.r, markerColor.g, markerColor.b, alpha, UIFont.Small)
     self:drawText(trimText(entry.label, 42), drawX + 56, drawY + 7, 0.98, 0.98, 0.94, alpha, UIFont.Small)
@@ -227,7 +245,7 @@ function DO_ProgressModal:render()
         and clamp((self.autoCloseAt - getNowMs()) / AUTO_CLOSE_MS, 0, 1)
         or 0
 
-    self:drawTextCentre("Mission Progress", self.width / 2, 16 + headerOffset, 0.98, 0.96, 0.84, headerAlpha, UIFont.Medium)
+    self:drawTextCentre(T("DOCommon_UI_Progress_Title", "Mission Progress"), self.width / 2, 16 + headerOffset, 0.98, 0.96, 0.84, headerAlpha, UIFont.Medium)
     self:drawTextCentre(trimText(self.summary.title, 50), self.width / 2, 42 + headerOffset, 0.98, 0.9, 0.48, headerAlpha, UIFont.Small)
     self:drawTextCentre(trimText(self.summary.giverLine, 60), self.width / 2, 60 + headerOffset, 0.8, 0.78, 0.68, headerAlpha, UIFont.Small)
 
@@ -243,7 +261,7 @@ function DO_ProgressModal:render()
     self:drawRect(drawHeroX, drawHeroY, drawHeroW, drawHeroH, 0.52 * heroAlpha, 0.18, 0.16, 0.05)
     self:drawRect(drawHeroX, drawHeroY, drawHeroW, 3, 0.95 * heroAlpha, 0.98, 0.84, 0.28)
     self:drawRectBorder(drawHeroX, drawHeroY, drawHeroW, drawHeroH, 0.34 * heroAlpha, 0.98, 0.84, 0.28)
-    self:drawText("CHECKPOINT REACHED", drawHeroX + 12, drawHeroY + 12, 0.98, 0.92, 0.42, heroAlpha, UIFont.Small)
+    self:drawText(T("DOCommon_UI_Progress_CheckpointReached", "CHECKPOINT REACHED"), drawHeroX + 12, drawHeroY + 12, 0.98, 0.92, 0.42, heroAlpha, UIFont.Small)
     self:drawText(trimText(self.summary.objectiveLabel, 42), drawHeroX + 12, drawHeroY + 32, 0.98, 0.98, 0.94, heroAlpha, UIFont.Medium)
     self:drawTextRight(trimText(self.summary.objectiveStatus, 22), drawHeroX + drawHeroW - 10, drawHeroY + 32, 0.88, 0.84, 0.68, heroAlpha, UIFont.Small)
 
@@ -272,7 +290,9 @@ function DO_ProgressModal:applyEvent(event)
     self.autoCloseAt = self.openedAt + AUTO_CLOSE_MS
     self.remainingSeconds = math.ceil(AUTO_CLOSE_MS / 1000)
     if self.closeButton and self.closeButton.setTitle then
-        self.closeButton:setTitle("Close (" .. tostring(self.remainingSeconds) .. ")")
+        self.closeButton:setTitle(T("DOCommon_UI_CloseCountdown", "Close ({seconds})", {
+            seconds = tostring(self.remainingSeconds)
+        }))
     end
 end
 
@@ -321,9 +341,11 @@ function DO_ProgressModal:update()
     if remainingSeconds ~= self.remainingSeconds then
         self.remainingSeconds = remainingSeconds
         if self.closeButton and self.closeButton.setTitle then
-            self.closeButton:setTitle("Close (" .. tostring(remainingSeconds) .. ")")
+                self.closeButton:setTitle(T("DOCommon_UI_CloseCountdown", "Close ({seconds})", {
+                    seconds = tostring(remainingSeconds)
+                }))
+            end
         end
-    end
 end
 
 function DO_ProgressModal:new(x, y, width, height)

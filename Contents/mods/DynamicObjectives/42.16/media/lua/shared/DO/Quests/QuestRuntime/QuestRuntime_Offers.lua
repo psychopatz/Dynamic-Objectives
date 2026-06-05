@@ -6,6 +6,19 @@ local Quests = DO.Quests
 Quests.Runtime = Quests.Runtime or {}
 local Runtime = Quests.Runtime
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 local function getTraderID(context)
     if type(context) ~= "table" then
         return ""
@@ -100,11 +113,11 @@ local function buildResolvedOfferData(player, traderContext, offer)
     local resolved = DO.DeepCopy(offer)
 
     resolved.choiceLabels = {
-        accept = tostring(tree.choices and tree.choices.accept or "Accept"),
-        details = tostring(tree.choices and tree.choices.details or "Tell me more"),
-        rewards = tostring(tree.choices and tree.choices.rewards or "What's the reward?"),
-        decline = tostring(tree.choices and tree.choices.decline or "Not now"),
-        back = tostring(tree.choices and tree.choices.back or "Back"),
+        accept = tostring(tree.choices and tree.choices.accept or T("DOCommon_Dialogue_Accept", "Accept")),
+        details = tostring(tree.choices and tree.choices.details or T("DOCommon_Dialogue_Details", "Tell me more")),
+        rewards = tostring(tree.choices and tree.choices.rewards or T("DOCommon_Dialogue_Rewards", "What's the reward?")),
+        decline = tostring(tree.choices and tree.choices.decline or T("DOCommon_Dialogue_Decline", "Not now")),
+        back = tostring(tree.choices and tree.choices.back or T("DOCommon_Dialogue_Back", "Back")),
     }
 
     local activeQuest = resolved.activeQuest
@@ -118,21 +131,23 @@ local function buildResolvedOfferData(player, traderContext, offer)
 
     local unavailableSuffix = ""
     if tonumber(resolved.cooldownRemainingHours) and tonumber(resolved.cooldownRemainingHours) > 0 then
-        unavailableSuffix = string.format(" Check back in %.1f hours.", tonumber(resolved.cooldownRemainingHours))
+        unavailableSuffix = T("DOCommon_Dialogue_CooldownSuffix", " Check back in {hours} hours.", {
+            hours = string.format("%.1f", tonumber(resolved.cooldownRemainingHours))
+        })
     end
 
     resolved.resolvedDialogue = {
         offer = Runtime.formatDialogueText(tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
         details = Runtime.formatDialogueText(tree.nodes and tree.nodes.details and tree.nodes.details.text or tree.nodes and tree.nodes.offer and tree.nodes.offer.text or "", context),
         rewards = Runtime.formatDialogueText(tree.nodes and tree.nodes.rewards and tree.nodes.rewards.text or "", context),
-        accept = Runtime.formatDialogueText(tree.nodes and tree.nodes.accept and tree.nodes.accept.text or "Objective accepted.", context),
-        decline = Runtime.formatDialogueText(tree.nodes and tree.nodes.decline and tree.nodes.decline.text or "Maybe later.", context),
+        accept = Runtime.formatDialogueText(tree.nodes and tree.nodes.accept and tree.nodes.accept.text or T("DOCommon_Dialogue_ObjectiveAccepted", "Objective accepted."), context),
+        decline = Runtime.formatDialogueText(tree.nodes and tree.nodes.decline and tree.nodes.decline.text or T("DOCommon_Dialogue_MaybeLater", "Maybe later."), context),
         active = Runtime.formatDialogueText(
-            tree.nodes and tree.nodes.active and tree.nodes.active.text or (activeQuest and Quests.BuildSummaryText(activeQuest, player) or "You already have this objective."),
+            tree.nodes and tree.nodes.active and tree.nodes.active.text or (activeQuest and Quests.BuildSummaryText(activeQuest, player) or T("DOCommon_Dialogue_AlreadyActive", "You already have this objective.")),
             context
         ),
         unavailable = Runtime.formatDialogueText(
-            tree.nodes and tree.nodes.unavailable and tree.nodes.unavailable.text or ("No work from me right now." .. unavailableSuffix),
+            tree.nodes and tree.nodes.unavailable and tree.nodes.unavailable.text or (T("DOCommon_Dialogue_NoWork", "No work from me right now.") .. unavailableSuffix),
             context
         ),
     }
@@ -148,14 +163,14 @@ local function buildResolvedOfferData(player, traderContext, offer)
             or (activeQuest and (activeQuest.title or activeQuest.name))
             or (blueprint and (blueprint.name or blueprint.id))
             or resolved.blueprintId
-            or "Objective"
+            or T("DOCommon_Dialogue_Objective", "Objective")
     )
 
     if resolved.isChainFollowup == true then
-        resolved.menuLabel = label .. " (Follow-up)"
+        resolved.menuLabel = label .. T("DOCommon_Dialogue_FollowUpSuffix", " (Follow-up)")
         resolved.outputPriority = 300
     elseif activeQuest then
-        resolved.menuLabel = label .. " (Active)"
+        resolved.menuLabel = label .. T("DOCommon_Dialogue_ActiveSuffix", " (Active)")
         resolved.outputPriority = 250
     else
         resolved.menuLabel = label

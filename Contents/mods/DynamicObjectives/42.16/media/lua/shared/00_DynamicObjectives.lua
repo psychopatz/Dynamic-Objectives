@@ -2,6 +2,8 @@ DynamicObjectives = DynamicObjectives or {}
 
 local DO = DynamicObjectives
 
+require "DO/Common/Text/DO_Text"
+
 DO.Version = DO.Version or "0.1.0"
 DO.Quests = DO.Quests or {}
 DO.Kills = DO.Kills or {}

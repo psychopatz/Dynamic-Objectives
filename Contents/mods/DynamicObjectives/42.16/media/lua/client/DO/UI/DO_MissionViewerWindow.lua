@@ -11,6 +11,13 @@ DO_MissionViewerWindow.instance = nil
 
 local DO = DynamicObjectives
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    return fallback or key
+end
+
 function DO_MissionViewerWindow:initialise()
     ISCollapsableWindow.initialise(self)
     self:setResizable(true)
@@ -41,14 +48,14 @@ function DO_MissionViewerWindow:createChildren()
     self.currentPanel:initialise()
     self.currentPanel:setAnchorRight(true)
     self.currentPanel:setAnchorBottom(true)
-    self.tabPanel:addView("Current", self.currentPanel)
+    self.tabPanel:addView(T("DOCommon_UI_MissionViewer_TabCurrent", "Current"), self.currentPanel)
 
     self.donePanel = DO_MissionViewerListPanel:new(0, 0, listW, contentH - self.tabPanel.tabHeight, "done", self)
     self.donePanel:initialise()
     self.donePanel:setAnchorRight(true)
     self.donePanel:setAnchorBottom(true)
-    self.tabPanel:addView("Done", self.donePanel)
-    self.tabPanel:activateView("Current")
+    self.tabPanel:addView(T("DOCommon_UI_MissionViewer_TabDone", "Done"), self.donePanel)
+    self.tabPanel:activateView(T("DOCommon_UI_MissionViewer_TabCurrent", "Current"))
 
     self.detailPanel = DO_MissionViewerDetailPanel:new(detailX, contentY, detailW, contentH, self)
     self.detailPanel:initialise()
@@ -115,10 +122,10 @@ function DO_MissionViewerWindow:refreshData(preferredQuestID, preserveTab)
 
     self.selectedMode = selectedMode
     if selectedMode == "done" then
-        self.tabPanel:activateView("Done")
+        self.tabPanel:activateView(T("DOCommon_UI_MissionViewer_TabDone", "Done"))
         self:onMissionSelected(self.donePanel:getSelectedSummary(), "done")
     else
-        self.tabPanel:activateView("Current")
+        self.tabPanel:activateView(T("DOCommon_UI_MissionViewer_TabCurrent", "Current"))
         self:onMissionSelected(self.currentPanel:getSelectedSummary(), "active")
     end
 end
@@ -187,7 +194,7 @@ function DO_MissionViewerWindow:new(x, y, width, height)
     local o = ISCollapsableWindow:new(x, y, width, height)
     setmetatable(o, self)
     self.__index = self
-    o.title = "Mission Viewer"
+    o.title = T("DOCommon_UI_MissionViewer_Title", "Mission Viewer")
     o.pin = true
     o.resizable = true
     o.refreshTick = 0

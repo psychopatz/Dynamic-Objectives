@@ -1,0 +1,7 @@
+Dynamic Objectives Translation Rules
+
+1. Put reusable visible text in `common/media/lua/shared/Translate`, not inside version-specific UI logic.
+2. Use semantic keys like `DOCommon_UI_MissionViewer_Title` and `DOCommon_Dialogue_Accept`.
+3. Prefer `DynamicObjectives.Text.Get(key, params, fallback)` over inline English.
+4. Use placeholders such as `{value}`, `{hours}`, and `{count}` instead of concatenating whole phrases.
+5. Keep quest runtime fallback dialogue and player-facing UI on the same shared text path so future versions can reuse it.

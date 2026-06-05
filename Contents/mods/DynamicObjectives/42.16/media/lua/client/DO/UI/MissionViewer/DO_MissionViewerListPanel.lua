@@ -6,6 +6,13 @@ DO_MissionViewerListPanel = ISPanel:derive("DO_MissionViewerListPanel")
 
 local DO = DynamicObjectives
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    return fallback or key
+end
+
 function DO_MissionViewerListPanel:initialise()
     ISPanel.initialise(self)
 end
@@ -46,10 +53,10 @@ function DO_MissionViewerListPanel:drawMissionItem(list, y, item, alt)
     local badges = {}
 
     if summary.tracked == true then
-        badges[#badges + 1] = "TRACKED"
+        badges[#badges + 1] = T("DOCommon_UI_MissionViewer_BadgeTracked", "TRACKED")
     end
     if summary.located == true then
-        badges[#badges + 1] = "LOCATED"
+        badges[#badges + 1] = T("DOCommon_UI_MissionViewer_BadgeLocated", "LOCATED")
     end
     if summary.status ~= "active" then
         badges[#badges + 1] = string.upper(tostring(summary.statusLabel or summary.status))
@@ -63,7 +70,7 @@ function DO_MissionViewerListPanel:drawMissionItem(list, y, item, alt)
         list:drawRectBorder(0, y, width, item.height - 2, 0.35, 0.42, 0.42, 0.42)
     end
 
-    list:drawText(tostring(summary.title or summary.name or item.text or "Mission"), 12, y + 6, 0.98, 0.98, 0.98, 0.98, UIFont.Small)
+    list:drawText(tostring(summary.title or summary.name or item.text or T("DOCommon_UI_MissionViewer_Mission", "Mission")), 12, y + 6, 0.98, 0.98, 0.98, 0.98, UIFont.Small)
     if #badges > 0 then
         list:drawTextRight(table.concat(badges, " | "), width - 10, y + 6, statusColor.r, statusColor.g, statusColor.b, 0.98, UIFont.Small)
     end

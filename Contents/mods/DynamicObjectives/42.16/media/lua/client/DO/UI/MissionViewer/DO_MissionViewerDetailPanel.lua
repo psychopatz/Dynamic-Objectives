@@ -8,6 +8,13 @@ DO_MissionViewerDetailPanel = ISPanel:derive("DO_MissionViewerDetailPanel")
 
 local DO = DynamicObjectives
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    return fallback or key
+end
+
 function DO_MissionViewerDetailPanel:initialise()
     ISPanel.initialise(self)
 end
@@ -16,7 +23,7 @@ function DO_MissionViewerDetailPanel:createChildren()
     ISPanel.createChildren(self)
 
     local pad = 12
-    self.nameLabel = ISLabel:new(pad, pad, 18, "Mission Details", 1, 1, 1, 1, UIFont.Medium, true)
+    self.nameLabel = ISLabel:new(pad, pad, 18, T("DOCommon_UI_MissionViewer_Details", "Mission Details"), 1, 1, 1, 1, UIFont.Medium, true)
     self.nameLabel:initialise()
     self:addChild(self.nameLabel)
 
@@ -28,15 +35,15 @@ function DO_MissionViewerDetailPanel:createChildren()
     local buttonW = 110
     local gap = 6
 
-    self.trackButton = ISButton:new(pad, buttonY, buttonW, 24, "Track", self, self.onTrackMission)
+    self.trackButton = ISButton:new(pad, buttonY, buttonW, 24, T("DOCommon_UI_MissionViewer_Track", "Track"), self, self.onTrackMission)
     self.trackButton:initialise()
     self:addChild(self.trackButton)
 
-    self.locateButton = ISButton:new(pad + buttonW + gap, buttonY, buttonW, 24, "Locate", self, self.onLocateMission)
+    self.locateButton = ISButton:new(pad + buttonW + gap, buttonY, buttonW, 24, T("DOCommon_UI_MissionViewer_Locate", "Locate"), self, self.onLocateMission)
     self.locateButton:initialise()
     self:addChild(self.locateButton)
 
-    self.abandonButton = ISButton:new(pad + (buttonW * 2) + (gap * 2), buttonY, buttonW, 24, "Abandon", self, self.onAbandonMission)
+    self.abandonButton = ISButton:new(pad + (buttonW * 2) + (gap * 2), buttonY, buttonW, 24, T("DOCommon_UI_MissionViewer_Abandon", "Abandon"), self, self.onAbandonMission)
     self.abandonButton:initialise()
     self.abandonButton.backgroundColor = { r = 0.42, g = 0.1, b = 0.1, a = 1.0 }
     self:addChild(self.abandonButton)
@@ -66,8 +73,8 @@ function DO_MissionViewerDetailPanel:applyDetail(detail)
     end
 
     if not detail then
-        self.nameLabel:setName("Mission Details")
-        self.metaLabel:setName("No mission selected")
+        self.nameLabel:setName(T("DOCommon_UI_MissionViewer_Details", "Mission Details"))
+        self.metaLabel:setName(T("DOCommon_UI_MissionViewer_NoMissionSelected", "No mission selected"))
         self.body.text = DO_MissionViewerShared.buildDetailText(nil)
         self.body:paginate()
         self.trackButton:setEnable(false)
@@ -76,10 +83,13 @@ function DO_MissionViewerDetailPanel:applyDetail(detail)
         return
     end
 
-    self.nameLabel:setName(tostring(detail.title or detail.name or detail.questID or "Mission"))
+    self.nameLabel:setName(tostring(detail.title or detail.name or detail.questID or T("DOCommon_UI_MissionViewer_Mission", "Mission")))
     local metaParts = {
-        tostring(detail.statusLabel or "Active"),
-        string.format("Step %d / %d", tonumber(detail.currentStep) or 1, tonumber(detail.totalSteps) or 1),
+        tostring(detail.statusLabel or T("DOCommon_UI_MissionViewer_Active", "Active")),
+        T("DOCommon_UI_ObjectiveHUD_Step", "STEP {current} / {total}", {
+            current = tonumber(detail.currentStep) or 1,
+            total = tonumber(detail.totalSteps) or 1,
+        }),
     }
     if detail.giverName and detail.giverName ~= "" then
         metaParts[#metaParts + 1] = tostring(detail.giverName)
@@ -92,8 +102,12 @@ function DO_MissionViewerDetailPanel:applyDetail(detail)
     self.trackButton:setEnable(isActive and detail.tracked ~= true)
     self.locateButton:setEnable(isActive == true)
     self.abandonButton:setEnable(isActive == true)
-    self.trackButton:setTitle(detail.tracked == true and "Tracked" or "Track")
-    self.locateButton:setTitle(detail.located == true and "Unlocate" or "Locate")
+    self.trackButton:setTitle(detail.tracked == true
+        and T("DOCommon_UI_MissionViewer_Tracked", "Tracked")
+        or T("DOCommon_UI_MissionViewer_Track", "Track"))
+    self.locateButton:setTitle(detail.located == true
+        and T("DOCommon_UI_MissionViewer_Unlocate", "Unlocate")
+        or T("DOCommon_UI_MissionViewer_Locate", "Locate"))
 end
 
 function DO_MissionViewerDetailPanel:onTrackMission()

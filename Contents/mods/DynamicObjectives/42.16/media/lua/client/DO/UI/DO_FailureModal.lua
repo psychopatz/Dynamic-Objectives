@@ -15,6 +15,19 @@ local BOX_ANIM_MS = 260
 local ENTRY_STAGGER_MS = 95
 local ENTRY_ANIM_MS = 280
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 local function clamp(value, minValue, maxValue)
     if value < minValue then
         return minValue
@@ -52,13 +65,13 @@ end
 
 local function humanizeReason(reason)
     local map = {
-        escort_target_incapacitated = "Escort incapacitated",
-        escort_target_lost = "Escort target lost",
-        reward_contact_unavailable = "Turn-in contact unavailable",
-        time_expired = "Contract expired",
-        abandoned = "Mission abandoned",
-        hook_failed = "Objective hook failed",
-        failed = "Mission failed",
+        escort_target_incapacitated = T("DOCommon_UI_Failure_ReasonEscortIncapacitated", "Escort incapacitated"),
+        escort_target_lost = T("DOCommon_UI_Failure_ReasonEscortLost", "Escort target lost"),
+        reward_contact_unavailable = T("DOCommon_UI_Failure_ReasonContactUnavailable", "Turn-in contact unavailable"),
+        time_expired = T("DOCommon_UI_Failure_ReasonTimeExpired", "Contract expired"),
+        abandoned = T("DOCommon_UI_Failure_ReasonAbandoned", "Mission abandoned"),
+        hook_failed = T("DOCommon_UI_Failure_ReasonHookFailed", "Objective hook failed"),
+        failed = T("DOCommon_UI_Failure_ReasonFailed", "Mission failed"),
     }
 
     local key = tostring(reason or "")
@@ -70,22 +83,27 @@ local function humanizeReason(reason)
     key = key:gsub("(%a)([%w']*)", function(first, rest)
         return string.upper(first) .. string.lower(rest or "")
     end)
-    return key ~= "" and key or "Mission failed"
+    return key ~= "" and key or T("DOCommon_UI_Failure_MissionFailed", "Mission failed")
 end
 
 local function buildFailureSummary(quest)
     local detail = DO.Quests and DO.Quests.GetQuestDetailData and DO.Quests.GetQuestDetailData(getLocalPlayer(), quest.id) or nil
-    local giverName = tostring((detail and detail.giverName) or quest.giverName or "Unknown Contact")
-    local factionName = tostring((detail and detail.giverFactionName) or quest.giverFactionName or "Independent")
+    local giverName = tostring((detail and detail.giverName) or quest.giverName or T("DOCommon_UI_Failure_UnknownContact", "Unknown Contact"))
+    local factionName = tostring((detail and detail.giverFactionName) or quest.giverFactionName or T("DOCommon_UI_Failure_Independent", "Independent"))
     local reason = humanizeReason((detail and detail.failureReason) or quest.failureReason)
-    local objectiveLabel = tostring((detail and detail.currentObjectiveLabel) or quest.name or "Mission")
+    local objectiveLabel = tostring((detail and detail.currentObjectiveLabel) or quest.name or T("DOCommon_UI_Failure_Objective", "Mission"))
     local stepLine = detail and detail.currentStep and detail.totalSteps
-        and string.format("Step %d / %d", math.max(1, tonumber(detail.currentStep) or 1), math.max(1, tonumber(detail.totalSteps) or 1))
-        or "Objective failed"
+        and T("DOCommon_UI_Failure_Step", "Step {current} / {total}", {
+            current = math.max(1, tonumber(detail.currentStep) or 1),
+            total = math.max(1, tonumber(detail.totalSteps) or 1),
+        })
+        or T("DOCommon_UI_Failure_ObjectiveFailed", "Objective failed")
 
     return {
-        header = tostring(quest.status or "") == "abandoned" and "Objective Abandoned" or "Objective Failed",
-        title = tostring((detail and detail.title) or quest.title or quest.name or "Mission Failed"),
+        header = tostring(quest.status or "") == "abandoned"
+            and T("DOCommon_UI_Failure_HeaderAbandoned", "Objective Abandoned")
+            or T("DOCommon_UI_Failure_HeaderFailed", "Objective Failed"),
+        title = tostring((detail and detail.title) or quest.title or quest.name or T("DOCommon_UI_Failure_Title", "Mission Failed")),
         giver = giverName,
         faction = factionName,
         reason = reason,
@@ -105,7 +123,7 @@ end
 function DO_FailureModal:createChildren()
     ISPanel.createChildren(self)
 
-    self.closeButton = ISButton:new((self.width - 96) / 2, self.height - 44, 96, 26, "Close", self, self.onCloseButton)
+    self.closeButton = ISButton:new((self.width - 96) / 2, self.height - 44, 96, 26, T("DOCommon_UI_Close", "Close"), self, self.onCloseButton)
     self.closeButton:initialise()
     self.closeButton.backgroundColor = { r = 0.24, g = 0.16, b = 0.16, a = 0.92 }
     self.closeButton.borderColor = { r = 1, g = 1, b = 1, a = 0.35 }
@@ -159,7 +177,7 @@ function DO_FailureModal:render()
     self.cardAnimIndex = 1
     local headerAlpha, headerOffset = self:getEntryAnimation(0)
     local centerX = self.width / 2
-    self:drawTextCentre(tostring(self.summary.header or "Objective Failed"), centerX, 16 + headerOffset, 0.98, 0.98, 0.98, headerAlpha, UIFont.Large)
+    self:drawTextCentre(tostring(self.summary.header or T("DOCommon_UI_Failure_HeaderFailed", "Objective Failed")), centerX, 16 + headerOffset, 0.98, 0.98, 0.98, headerAlpha, UIFont.Large)
     self:drawTextCentre(trimText(self.summary.title, 48), centerX, 42 + headerOffset, 0.8, 0.9, 1.0, headerAlpha, UIFont.Medium)
 
     local infoY = 82
@@ -169,11 +187,13 @@ function DO_FailureModal:render()
     local leftX = 18
     local rightX = leftX + topCardW + cardGap
 
-    self:drawCard(leftX, infoY, topCardW, topCardH, "Failure Reason", self.summary.reason, self.summary.stepLine, { r = 0.9, g = 0.28, b = 0.3 })
-    self:drawCard(rightX, infoY, topCardW, topCardH, "Objective", self.summary.objective, "No rewards were paid out.", { r = 0.84, g = 0.42, b = 0.24 })
+    self:drawCard(leftX, infoY, topCardW, topCardH, T("DOCommon_UI_Failure_FailureReason", "Failure Reason"), self.summary.reason, self.summary.stepLine, { r = 0.9, g = 0.28, b = 0.3 })
+    self:drawCard(rightX, infoY, topCardW, topCardH, T("DOCommon_UI_Failure_ObjectiveCard", "Objective"), self.summary.objective, T("DOCommon_UI_Failure_NoRewards", "No rewards were paid out."), { r = 0.84, g = 0.42, b = 0.24 })
 
     local bottomY = infoY + topCardH + 14
-    self:drawCard(18, bottomY, self.width - 36, 92, "Contact", self.summary.giver, "Faction: " .. tostring(self.summary.faction or "Independent"), { r = 0.72, g = 0.46, b = 0.5 })
+    self:drawCard(18, bottomY, self.width - 36, 92, T("DOCommon_UI_Failure_Contact", "Contact"), self.summary.giver, T("DOCommon_UI_Failure_Faction", "Faction: {value}", {
+        value = tostring(self.summary.faction or T("DOCommon_UI_Failure_Independent", "Independent"))
+    }), { r = 0.72, g = 0.46, b = 0.5 })
 end
 
 function DO_FailureModal:update()
@@ -183,7 +203,9 @@ function DO_FailureModal:update()
     if (tonumber(self.autoCloseAt) or 0) > 0 then
         local remaining = math.max(0, math.ceil((tonumber(self.autoCloseAt) - nowMs) / 1000))
         if self.closeButton then
-            self.closeButton:setTitle(remaining > 0 and ("Close (" .. tostring(remaining) .. ")") or "Close")
+            self.closeButton:setTitle(remaining > 0
+                and T("DOCommon_UI_CloseCountdown", "Close ({seconds})", { seconds = tostring(remaining) })
+                or T("DOCommon_UI_Close", "Close"))
         end
         if nowMs >= tonumber(self.autoCloseAt) then
             self:onCloseButton()

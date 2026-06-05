@@ -17,6 +17,19 @@ local AUTO_CLOSE_MS = 8000
 local ENTRY_STAGGER_MS = 110
 local ENTRY_ANIM_MS = 320
 
+local function T(key, fallback, params)
+    if DO and DO.Text and DO.Text.Get then
+        return DO.Text.Get(key, params, fallback)
+    end
+    if type(params) == "table" and fallback then
+        return (tostring(fallback):gsub("{([%w_]+)}", function(name)
+            local value = params[name]
+            return value == nil and ("{" .. name .. "}") or tostring(value)
+        end))
+    end
+    return fallback or key
+end
+
 local function clamp(value, minValue, maxValue)
     if value < minValue then
         return minValue
@@ -45,7 +58,7 @@ end
 local function getItemDisplayName(itemType)
     local value = tostring(itemType or "")
     if value == "" then
-        return "Loot"
+        return T("DOCommon_UI_Completion_LootFallback", "Loot")
     end
 
     local manager = (ScriptManager and ScriptManager.instance) or (getScriptManager and getScriptManager()) or nil
@@ -158,20 +171,26 @@ local function resolveFactionDisplayName(factionID, fallbackName)
         return tostring(factionID)
     end
 
-    return "Faction Recipient"
+    return T("DOCommon_UI_Completion_RecipientFallback", "Faction Recipient")
 end
 
 local function buildRecipientSummary(names)
     if type(names) ~= "table" or #names == 0 then
-        return "Faction Recipient"
+        return T("DOCommon_UI_Completion_RecipientFallback", "Faction Recipient")
     end
     if #names == 1 then
         return names[1]
     end
     if #names == 2 then
-        return names[1] .. " and " .. names[2]
+        return T("DOCommon_UI_Completion_RecipientAnd", "{left} and {right}", {
+            left = names[1],
+            right = names[2],
+        })
     end
-    return names[1] .. " +" .. tostring(#names - 1) .. " more"
+    return T("DOCommon_UI_Completion_RecipientMore", "{left} +{count} more", {
+        left = names[1],
+        count = tostring(#names - 1),
+    })
 end
 
 local function buildRewardSummary(quest)
@@ -182,7 +201,7 @@ local function buildRewardSummary(quest)
         lootEntries = {},
         primaryLoot = nil,
         repRecipients = {},
-        repRecipientLabel = "Faction Recipient",
+        repRecipientLabel = T("DOCommon_UI_Completion_RecipientFallback", "Faction Recipient"),
     }
     local recipientLookup = {}
     local rewardContext = type(quest and quest.rewardContext) == "table" and quest.rewardContext or {}
@@ -276,7 +295,7 @@ function DO_CompletionModal:createChildren()
 
     local buttonW = 96
     local buttonH = 26
-    self.closeButton = ISButton:new((self.width - buttonW) / 2, self.height - buttonH - 18, buttonW, buttonH, "Close", self, self.onCloseButton)
+    self.closeButton = ISButton:new((self.width - buttonW) / 2, self.height - buttonH - 18, buttonW, buttonH, T("DOCommon_UI_Close", "Close"), self, self.onCloseButton)
     self.closeButton:initialise()
     self.closeButton.backgroundColor = { r = 0.2, g = 0.2, b = 0.2, a = 0.85 }
     self.closeButton.borderColor = { r = 1, g = 1, b = 1, a = 0.35 }
@@ -372,14 +391,20 @@ function DO_CompletionModal:drawLootTile(entry, x, y, w, h, featured, animIndex)
 
     if featured then
         local textX = textureX + textureSize + 14
-        self:drawText("TOP REWARD", textX, drawY + 14, 0.74, 0.94, 0.56, alpha, UIFont.Small)
+        self:drawText(T("DOCommon_UI_Completion_TopReward", "TOP REWARD"), textX, drawY + 14, 0.74, 0.94, 0.56, alpha, UIFont.Small)
         self:drawText(trimText(entry.displayName, 24), textX, drawY + 34, 0.98, 0.98, 0.92, alpha, UIFont.Large)
-        self:drawText("x" .. tostring(entry.count), textX, drawY + 58, 0.9, 0.94, 0.88, alpha, UIFont.Medium)
+        self:drawText(T("DOCommon_UI_Completion_ItemQuantity", "x{count}", {
+            count = tostring(entry.count),
+        }), textX, drawY + 58, 0.9, 0.94, 0.88, alpha, UIFont.Medium)
         if tonumber(entry.totalValue) and tonumber(entry.totalValue) > 0 then
-            self:drawTextRight("$" .. tostring(math.floor(entry.totalValue)) .. " value", drawX + drawW - 14, drawY + drawH - 22, 0.72, 0.82, 0.72, alpha, UIFont.Small)
+            self:drawTextRight(T("DOCommon_UI_Completion_Value", "${value} value", {
+                value = math.floor(entry.totalValue)
+            }), drawX + drawW - 14, drawY + drawH - 22, 0.72, 0.82, 0.72, alpha, UIFont.Small)
         end
     else
-        self:drawTextCentre("x" .. tostring(entry.count), drawX + (drawW / 2), drawY + drawH - 20, 0.94, 0.96, 0.9, alpha, UIFont.Small)
+        self:drawTextCentre(T("DOCommon_UI_Completion_ItemQuantity", "x{count}", {
+            count = tostring(entry.count),
+        }), drawX + (drawW / 2), drawY + drawH - 20, 0.94, 0.96, 0.9, alpha, UIFont.Small)
     end
 end
 
@@ -389,12 +414,14 @@ function DO_CompletionModal:drawLootPanel(x, y, w, h, summary)
     self:drawRect(x, y, w, h, 0.46 * panelAlpha, 0.06, 0.09, 0.06)
     self:drawRect(x, y, w, 3, 0.88 * panelAlpha, 0.64, 0.88, 0.38)
     self:drawRectBorder(x, y, w, h, 0.4 * panelAlpha, 0.62, 0.84, 0.36)
-    self:drawText("LOOT", x + 14, y + 11, 0.78, 0.98, 0.56, panelAlpha, UIFont.Small)
-    self:drawTextRight(tostring(summary.lootCount or 0) .. " items", x + w - 14, y + 11, 0.94, 0.96, 0.9, panelAlpha, UIFont.Small)
+    self:drawText(T("DOCommon_UI_Completion_Loot", "LOOT"), x + 14, y + 11, 0.78, 0.98, 0.56, panelAlpha, UIFont.Small)
+    self:drawTextRight(T("DOCommon_UI_Completion_ItemsCount", "{count} items", {
+        count = tostring(summary.lootCount or 0)
+    }), x + w - 14, y + 11, 0.94, 0.96, 0.9, panelAlpha, UIFont.Small)
 
     local primary = summary.primaryLoot
     if not primary then
-        self:drawTextCentre("No item rewards", x + (w / 2), y + 72, 0.72, 0.78, 0.72, panelAlpha, UIFont.Medium)
+        self:drawTextCentre(T("DOCommon_UI_Completion_NoItemRewards", "No item rewards"), x + (w / 2), y + 72, 0.72, 0.78, 0.72, panelAlpha, UIFont.Medium)
         return
     end
 
@@ -426,7 +453,9 @@ function DO_CompletionModal:drawLootPanel(x, y, w, h, summary)
 
     if (#secondaryEntries - 1) > drawCount then
         local remaining = (#secondaryEntries - 1) - drawCount
-        self:drawTextRight("+" .. tostring(remaining) .. " more", x + w - 14, y + h - 24, 0.74, 0.82, 0.72, panelAlpha, UIFont.Small)
+        self:drawTextRight(T("DOCommon_UI_Completion_MoreRewards", "+{count} more", {
+            count = tostring(remaining)
+        }), x + w - 14, y + h - 24, 0.74, 0.82, 0.72, panelAlpha, UIFont.Small)
     end
 end
 
@@ -435,8 +464,8 @@ function DO_CompletionModal:render()
     local y = 18 + headerOffset
     local countdownRatio = self.autoCloseAt and self.autoCloseAt > 0 and clamp((self.autoCloseAt - self:getNowMs()) / AUTO_CLOSE_MS, 0, 1) or 0
 
-    self:drawTextCentre("Objective Complete", self.width / 2, y, 0.98, 0.98, 0.92, headerAlpha, UIFont.Medium)
-    self:drawTextCentre(trimText(self.questName or "Completed", 52), self.width / 2, y + 28, 0.68, 0.9, 1.0, headerAlpha, UIFont.Small)
+    self:drawTextCentre(T("DOCommon_UI_Completion_Title", "Objective Complete"), self.width / 2, y, 0.98, 0.98, 0.92, headerAlpha, UIFont.Medium)
+    self:drawTextCentre(trimText(self.questName or T("DOCommon_UI_Completion_SubtitleCompleted", "Completed"), 52), self.width / 2, y + 28, 0.68, 0.9, 1.0, headerAlpha, UIFont.Small)
     self:drawRect(22, 72, self.width - 44, 4, 0.3, 0.18, 0.2, 0.18)
     self:drawRect(22, 72, (self.width - 44) * countdownRatio, 4, 0.82, 0.64, 0.88, 0.38)
 
@@ -444,19 +473,21 @@ function DO_CompletionModal:render()
     local moneyValue = "$" .. tostring(math.max(0, tonumber(summary.money) or 0))
     local repAmount = math.floor(tonumber(summary.reputation) or 0)
     local repValue = repAmount >= 0 and ("+" .. tostring(repAmount)) or tostring(repAmount)
-    local repDetail = "Recipient: " .. tostring(summary.repRecipientLabel or "Faction Recipient")
+    local repDetail = T("DOCommon_UI_Completion_Recipient", "Recipient: {value}", {
+        value = tostring(summary.repRecipientLabel or T("DOCommon_UI_Completion_RecipientFallback", "Faction Recipient"))
+    })
 
     self:drawLootPanel(18, 88, self.width - 36, 176, summary)
     local metricY = 278
     local metricW = math.floor((self.width - 46) / 2)
-    self:drawRewardCard(18, metricY, metricW, 70, "CASH", moneyValue, "Immediate payout", { r = 0.95, g = 0.86, b = 0.34 }, self.moneyTexture, 7)
-    self:drawRewardCard(28 + metricW, metricY, metricW, 70, "REP", repValue, repDetail, { r = 0.44, g = 0.76, b = 1.0 }, nil, 8)
+    self:drawRewardCard(18, metricY, metricW, 70, T("DOCommon_UI_Completion_Cash", "CASH"), moneyValue, T("DOCommon_UI_Completion_ImmediatePayout", "Immediate payout"), { r = 0.95, g = 0.86, b = 0.34 }, self.moneyTexture, 7)
+    self:drawRewardCard(28 + metricW, metricY, metricW, 70, T("DOCommon_UI_Completion_Rep", "REP"), repValue, repDetail, { r = 0.44, g = 0.76, b = 1.0 }, nil, 8)
     ISPanel.render(self)
 end
 
 function DO_CompletionModal:applyQuest(quest)
     self.questID = quest and quest.id or nil
-    self.questName = quest and quest.name or "Completed"
+    self.questName = quest and quest.name or T("DOCommon_UI_Completion_SubtitleCompleted", "Completed")
     self.rewardSummary = buildRewardSummary(quest)
     self.moneyTexture = getTexture and getTexture("Item_Money") or nil
     self.openedAt = self:getNowMs()
@@ -464,7 +495,9 @@ function DO_CompletionModal:applyQuest(quest)
     self.modalAlpha = 1
     self.remainingSeconds = math.ceil(AUTO_CLOSE_MS / 1000)
     if self.closeButton and self.closeButton.setTitle then
-        self.closeButton:setTitle("Close (" .. tostring(self.remainingSeconds) .. ")")
+        self.closeButton:setTitle(T("DOCommon_UI_CloseCountdown", "Close ({seconds})", {
+            seconds = tostring(self.remainingSeconds)
+        }))
     end
 
     if Shared.CenterModal then
@@ -550,7 +583,9 @@ function DO_CompletionModal:update()
         if remainingSeconds ~= self.remainingSeconds then
             self.remainingSeconds = remainingSeconds
             if self.closeButton and self.closeButton.setTitle then
-                self.closeButton:setTitle("Close (" .. tostring(remainingSeconds) .. ")")
+                self.closeButton:setTitle(T("DOCommon_UI_CloseCountdown", "Close ({seconds})", {
+                    seconds = tostring(remainingSeconds)
+                }))
             end
         end
     end
