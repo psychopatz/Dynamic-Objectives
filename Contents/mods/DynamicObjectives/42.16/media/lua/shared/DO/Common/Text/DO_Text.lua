@@ -131,7 +131,11 @@ function Text.LogMissing(key)
     end
 
     Text._missingLogged[normalized] = true
-    print("[DynamicObjectives.Text] Missing translation key: " .. normalized)
+    if DynamicObjectives and DynamicObjectives.LogWarn then
+        DynamicObjectives.LogWarn("Text", "Missing translation key: " .. normalized)
+    elseif DynamicObjectives and DynamicObjectives.Log then
+        DynamicObjectives.Log("Warn", "Text", "Missing translation key: " .. normalized)
+    end
     return true
 end
 

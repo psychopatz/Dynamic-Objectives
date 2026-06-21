@@ -18,18 +18,47 @@ DO.QuestLootPools = DO.QuestLootPools or { Registry = {}, Order = {} }
 DO.QuestDialogueTrees = DO.QuestDialogueTrees or { Registry = {}, Order = {} }
 
 local function fallbackPrint(message)
-    if print then
-        print("[DynamicObjectives] " .. tostring(message))
-    end
+    return message
 end
 
-function DO.Log(category, topic, message)
+function DO.LogLevel(level, category, topic, message)
+    if DynamicTrading and DynamicTrading.LogLevel then
+        DynamicTrading.LogLevel(
+            tostring(level or "info"),
+            "DTObjectives",
+            tostring(category or "Log"),
+            tostring(topic or "Core"),
+            tostring(message or "")
+        )
+        return
+    end
+
     if DynamicTrading and DynamicTrading.Log then
         DynamicTrading.Log("DTObjectives", tostring(category or "Log"), tostring(topic or "Core"), tostring(message or ""))
         return
     end
 
-    fallbackPrint(string.format("[%s][%s] %s", tostring(category or "Log"), tostring(topic or "Core"), tostring(message or "")))
+    fallbackPrint(string.format("[%s][%s][%s] %s", tostring(level or "info"), tostring(category or "Log"), tostring(topic or "Core"), tostring(message or "")))
+end
+
+function DO.Log(category, topic, message)
+    DO.LogLevel(nil, category, topic, message)
+end
+
+function DO.LogWarn(topic, message)
+    DO.LogLevel("warn", "Warn", topic, message)
+end
+
+function DO.LogError(topic, message)
+    DO.LogLevel("error", "Error", topic, message)
+end
+
+function DO.LogDebug(topic, message)
+    DO.LogLevel("debug", "Debug", topic, message)
+end
+
+function DO.LogTrace(topic, message)
+    DO.LogLevel("trace", "Trace", topic, message)
 end
 
 function DO.NowMs()

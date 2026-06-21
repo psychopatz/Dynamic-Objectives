@@ -83,9 +83,7 @@ function Quests.CreateQuestItem(player, itemFullType, questID, difficulty)
         sendAddItemToContainer(inventory, item)
     end
 
-    if isDebugEnabled() then
-        itemLog("Quest", "QuestItems", "Spawned quest item " .. tostring(itemFullType) .. " for " .. tostring(questID))
-    end
+    DO.LogDebug("QuestItems", "Spawned quest item " .. tostring(itemFullType) .. " for " .. tostring(questID))
 
     return item
 end
