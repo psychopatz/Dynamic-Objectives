@@ -1,0 +1,13 @@
+.architecture-refactor/
+.codebase-memory/
+__pycache__/
+*.pyc
+.pytest_cache/
+:memory:.ses
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.log
+upload_staging/
+workshop_update.vdf
